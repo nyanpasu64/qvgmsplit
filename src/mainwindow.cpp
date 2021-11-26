@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "backend.h"
 #include "lib/layout_macros.h"
 
 // Layout
@@ -10,6 +11,8 @@
 #include <QFileDialog>
 
 class MainWindowImpl : public MainWindow {
+    Backend _backend;
+
     QAction * _open;
     QAction * _render;
     QAction * _exit;
@@ -60,6 +63,10 @@ public:
         connect(_exit, &QAction::triggered, this, &MainWindowImpl::close);
 
         // TODO load file
+    }
+
+    void load_path() {
+        // TODO PlayerBase::GetDeviceOptions(UINT32 id, PLR_DEV_OPTS& devOpts) const = 0;
     }
 
     void on_open() {

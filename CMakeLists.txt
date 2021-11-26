@@ -81,6 +81,9 @@ set(PROJECT_SOURCES
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
+    src/backend.cpp
+    src/backend.h
+    src/test.cpp
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
@@ -98,7 +101,7 @@ endif()
 target_compile_options(qvgmsplit PRIVATE "${options}")
 target_link_libraries(qvgmsplit PRIVATE
     ${Qt}::Widgets
-    vgm-player
+    vgm-audio vgm-player vgm-utils
 )
 
 set_target_properties(qvgmsplit PROPERTIES
