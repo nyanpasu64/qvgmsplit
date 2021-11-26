@@ -807,9 +807,7 @@ static UINT32 FillBuffer(void* drvStruct, void* userParam, UINT32 bufSize, void*
     }
 
     UINT32 renderedBytes;
-    OSMutex_Lock(renderMtx);
     renderedBytes = myPlr.Render(bufSize, data);
-    OSMutex_Unlock(renderMtx);
 
     return renderedBytes;
 }
@@ -912,8 +910,6 @@ static UINT8 InitAudioSystem(void)
     AUDDRV_INFO* drvInfo;
     UINT8 retVal;
 
-    retVal = OSMutex_Init(&renderMtx, 0);
-
     printf("Opening Audio Device ...\n");
     retVal = Audio_Init();
     if (retVal == AERR_NODRVS)
@@ -972,8 +968,6 @@ static UINT8 DeinitAudioSystem(void)
         AudioDrv_Deinit(&audDrvLog);	audDrvLog = NULL;
     }
     Audio_Deinit();
-
-    OSMutex_Deinit(renderMtx);	renderMtx = NULL;
 
     return retVal;
 }

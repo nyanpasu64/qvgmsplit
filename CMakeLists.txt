@@ -74,10 +74,17 @@ set(BUILD_PLAYER FALSE CACHE BOOL "")
 set(BUILD_VGM2WAV FALSE CACHE BOOL "")
 set(USE_SANITIZERS FALSE CACHE BOOL "")
 add_subdirectory("3rdparty/libvgm")
+add_subdirectory("3rdparty/STX")
 
 ## Application
 
 set(PROJECT_SOURCES
+    src/lib/format.h
+    src/lib/gtr.h
+    src/lib/hv_line.h
+    src/lib/layout_macros.h
+    src/lib/trace.h
+
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
@@ -102,6 +109,7 @@ target_compile_options(qvgmsplit PRIVATE "${options}")
 target_link_libraries(qvgmsplit PRIVATE
     ${Qt}::Widgets
     vgm-audio vgm-player vgm-utils
+    stx
 )
 
 set_target_properties(qvgmsplit PROPERTIES
