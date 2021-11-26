@@ -8,10 +8,23 @@
 #include <QToolBar>
 
 // Qt
+#include <QErrorMessage>
 #include <QFileDialog>
+
+#include <utility>  // std::move
+
+static void setup_error_dialog(QErrorMessage & dialog) {
+    static constexpr int W = 640;
+    static constexpr int H = 360;
+    dialog.resize(W, H);
+    dialog.setModal(true);
+}
+
 
 class MainWindowImpl : public MainWindow {
     Backend _backend;
+
+    QErrorMessage _error_dialog{this};
 
     QAction * _open;
     QAction * _render;
@@ -24,6 +37,8 @@ public:
         : MainWindow(parent)
         , _path(std::move(path))
     {
+        setup_error_dialog(_error_dialog);
+
         // Setup GUI layout
 
         auto main = this;
@@ -67,7 +82,11 @@ public:
 
     void load_path() {
         // TODO PlayerBase::GetDeviceOptions(UINT32 id, PLR_DEV_OPTS& devOpts) const = 0;
-        _backend.load_path(_path);
+        auto err = _backend.load_path(_path);
+        if (!err.isEmpty()) {
+            _error_dialog.close();
+            _error_dialog.showMessage(err);
+        }
     }
 
     void on_open() {
@@ -76,13 +95,14 @@ public:
             this,
             tr("Open File"),
             QString(),
-            tr("VGM files (*.vgm);;All files (*)"));
+            tr("VGM files (*.vgm *.vgz);;All files (*)"));
 
         if (path.isEmpty()) {
             return;
         }
 
-        // TODO open_path(std::move(path));
+        _path = std::move(path);
+        load_path();
     }
 
     void on_render() {

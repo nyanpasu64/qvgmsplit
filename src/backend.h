@@ -8,6 +8,7 @@
 #include <memory>
 #include <vector>
 
+class Metadata;
 class Job;
 
 class JobHandle {
@@ -22,7 +23,7 @@ class Backend {
     Q_DECLARE_TR_FUNCTIONS(Backend)
 
     QByteArray _file_data;
-    std::unique_ptr<JobHandle> _master_audio;
+    std::unique_ptr<Metadata> _metadata;
     std::vector<JobHandle> _channels;
 
 public:

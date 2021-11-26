@@ -21,6 +21,7 @@
 #include <atomic>
 #include <cstdint>
 
+using std::move;
 using stx::Result, stx::Ok, stx::Err;
 using format::format_hex_2;
 
@@ -55,6 +56,13 @@ public:
 
 // impl
 public:
+    /// Please don't call directly. This is only public for make_shared().
+    explicit Job(QByteArray file_data, BoxDataLoader loader, std::unique_ptr<PlayerA> player)
+        : _file_data(move(file_data))
+        , _loader(move(loader))
+        , _player(move(player))
+    {}
+
     static Result<std::shared_ptr<Job>, QString> make(
         QByteArray file_data, std::unique_ptr<PlayerA> player
     ) {
@@ -85,9 +93,9 @@ public:
         }
 
         return Ok(std::make_shared<Job>(
-            std::move(file_data),
-            std::move(loader),
-            std::move(player)));
+            move(file_data),
+            move(loader),
+            move(player)));
     }
 };
 
@@ -97,6 +105,60 @@ void JobHandle::cancel() {
     _job->_cancel.store(true, std::memory_order_relaxed);
 }
 
+class Metadata {
+public:
+    /// Implicitly shared, read-only.
+    QByteArray _file_data;
+
+    /// Points within _file_data, unique per job.
+    BoxDataLoader _loader;
+
+    std::unique_ptr<PlayerA> _player;
+
+// impl
+public:
+    static Result<std::unique_ptr<Metadata>, QString> make(QByteArray file_data) {
+        UINT8 status;
+
+        auto loader = BoxDataLoader(MemoryLoader_Init(
+            (UINT8 const*) file_data.data(), (UINT32) file_data.size()
+        ));
+        if (loader == nullptr) {
+            return Err(Backend::tr("Failed to allocate MemoryLoader_Init"));
+        }
+
+        DataLoader_SetPreloadBytes(loader.get(), 0x100);
+        status = DataLoader_Load(loader.get());
+        if (status) {
+            // BoxDataLoader calls DataLoader_Deinit upon destruction.
+            // It seems DataLoader_Deinit calls DataLoader_Reset, which calls
+            // DataLoader_CancelLoading. So we don't need to explicitly call
+            // DataLoader_CancelLoading beforehand, and IDK why player.cpp does so.
+            return Err(Backend::tr("Failed to extract file, error %1")
+                .arg(format_hex_2(status)));
+        }
+
+        auto player = std::make_unique<PlayerA>();
+        /* Register all player engines.
+         * libvgm will automatically choose the correct one depending on the file format. */
+        player->RegisterPlayerEngine(new VGMPlayer);
+        player->RegisterPlayerEngine(new S98Player);
+        player->RegisterPlayerEngine(new DROPlayer);
+        player->RegisterPlayerEngine(new GYMPlayer);
+
+        status = player->LoadFile(loader.get());
+        if (status) {
+            return Err(Backend::tr("Failed to load file, error %1")
+                .arg(format_hex_2(status)));
+        }
+
+        return Ok(std::make_unique<Metadata>(Metadata {
+            move(file_data),
+            move(loader),
+            move(player),
+        }));
+    }
+};
 
 Backend::Backend() {
 }
@@ -105,7 +167,7 @@ Backend::~Backend() = default;
 
 QString Backend::load_path(QString path) {
     _file_data.clear();
-    _master_audio.reset();
+    _metadata.reset();
     _channels.clear();
 
     {
@@ -125,29 +187,15 @@ QString Backend::load_path(QString path) {
         file.close();
     }
 
-    std::shared_ptr<Job> master_job;
     {
-        auto master_player = std::make_unique<PlayerA>();
-
-        /* Register all player engines.
-         * libvgm will automatically choose the correct one depending on the file format. */
-        master_player->RegisterPlayerEngine(new VGMPlayer);
-        master_player->RegisterPlayerEngine(new S98Player);
-        master_player->RegisterPlayerEngine(new DROPlayer);
-        master_player->RegisterPlayerEngine(new GYMPlayer);
-
-        // TODO SetEventCallback/SetFileReqCallback/SetLogCallback
-
-        // TODO SetConfiguration() (either now or after loading file)
-
-        auto result = Job::make(_file_data, std::move(master_player));
+        auto result = Metadata::make(_file_data);
         if (result.is_err()) {
-            return std::move(result.err_value());
+            return move(result.err_value());
         }
-        master_job = std::move(result.value());
+        _metadata = move(result.value());
     }
 
-    // _master_audio = ???;
+    // TODO load _channels
 
     return {};
 }
