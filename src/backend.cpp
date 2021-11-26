@@ -22,6 +22,7 @@
 #include <cstdint>
 
 using stx::Result, stx::Ok, stx::Err;
+using format::format_hex_2;
 
 static constexpr size_t BUFFER_LEN = 2048;
 
@@ -36,33 +37,57 @@ struct DeleteDataLoader {
     }
 };
 
+using BoxDataLoader = std::unique_ptr<DATA_LOADER, DeleteDataLoader>;
+
 class Job {
 public:
     /// Implicitly shared, read-only.
     QByteArray _file_data;
 
     /// Points within _file_data, unique per job.
-    std::unique_ptr<DATA_LOADER, DeleteDataLoader> _loader;
+    BoxDataLoader _loader;
 
-    BoxArray<unsigned char, sizeof(int32_t) * 2 * BUFFER_LEN> _buffer;
     std::unique_ptr<PlayerA> _player;
+    BoxArray<unsigned char, sizeof(int32_t) * 2 * BUFFER_LEN> _buffer = {};
     std::atomic<bool> _cancel = false;
 
     friend class JobHandle;
 
 // impl
-    Job(QByteArray data, std::unique_ptr<PlayerA> player)
-        : _file_data(std::move(data))
-        , _loader(MemoryLoader_Init(
-            (UINT8 const*) _file_data.data(), (UINT32) _file_data.size()
-        ))
-        , _player(std::move(player))
-    {
-        UINT8 err = DataLoader_Load(_loader.get());
-        if (err) {
-            // FIXME
-            throw "err";
+public:
+    static Result<std::shared_ptr<Job>, QString> make(
+        QByteArray file_data, std::unique_ptr<PlayerA> player
+    ) {
+        UINT8 status;
+
+        auto loader = BoxDataLoader(MemoryLoader_Init(
+            (UINT8 const*) file_data.data(), (UINT32) file_data.size()
+        ));
+        if (loader == nullptr) {
+            return Err(Backend::tr("Failed to allocate MemoryLoader_Init"));
         }
+
+        DataLoader_SetPreloadBytes(loader.get(), 0x100);
+        status = DataLoader_Load(loader.get());
+        if (status) {
+            // BoxDataLoader calls DataLoader_Deinit upon destruction.
+            // It seems DataLoader_Deinit calls DataLoader_Reset, which calls
+            // DataLoader_CancelLoading. So we don't need to explicitly call
+            // DataLoader_CancelLoading beforehand, and IDK why player.cpp does so.
+            return Err(Backend::tr("Failed to extract file, error %1")
+                .arg(format_hex_2(status)));
+        }
+
+        status = player->LoadFile(loader.get());
+        if (status) {
+            return Err(Backend::tr("Failed to load file, error %1")
+                .arg(format_hex_2(status)));
+        }
+
+        return Ok(std::make_shared<Job>(
+            std::move(file_data),
+            std::move(loader),
+            std::move(player)));
     }
 };
 
@@ -100,21 +125,29 @@ QString Backend::load_path(QString path) {
         file.close();
     }
 
-    auto master_job = std::make_shared<Job>(_file_data, std::make_unique<PlayerA>());
+    std::shared_ptr<Job> master_job;
     {
-        PlayerA & master_player = *master_job->_player;
+        auto master_player = std::make_unique<PlayerA>();
 
         /* Register all player engines.
          * libvgm will automatically choose the correct one depending on the file format. */
-        master_player.RegisterPlayerEngine(new VGMPlayer);
-        master_player.RegisterPlayerEngine(new S98Player);
-        master_player.RegisterPlayerEngine(new DROPlayer);
-        master_player.RegisterPlayerEngine(new GYMPlayer);
+        master_player->RegisterPlayerEngine(new VGMPlayer);
+        master_player->RegisterPlayerEngine(new S98Player);
+        master_player->RegisterPlayerEngine(new DROPlayer);
+        master_player->RegisterPlayerEngine(new GYMPlayer);
+
+        // TODO SetEventCallback/SetFileReqCallback/SetLogCallback
+
+        // TODO SetConfiguration() (either now or after loading file)
+
+        auto result = Job::make(_file_data, std::move(master_player));
+        if (result.is_err()) {
+            return std::move(result.err_value());
+        }
+        master_job = std::move(result.value());
     }
 
-    // TODO SetEventCallback/SetFileReqCallback/SetLogCallback
-
-    // TODO SetConfiguration() (either now or after loading file)
+    // _master_audio = ???;
 
     return {};
 }
@@ -136,8 +169,6 @@ struct Unit {};
 Result<Unit, QString> asdf(PlayerA & player) {
     return OK;
 }
-
-using format::format_hex_2;
 
 Result<Unit, QString> load_song(
     PlayerA & player, QString path, uint32_t sample_rate, uint8_t bit_depth
