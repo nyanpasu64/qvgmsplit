@@ -9,16 +9,8 @@
 class QKeyEvent;
 
 namespace format {
-
 namespace detail {
     extern const QString hex_digits[16];
-
-    constexpr static size_t NUM_DIATONIC = 7;
-    extern const QString diatonic_names[NUM_DIATONIC];
-
-    using MaybeUnsigned = int8_t;
-    constexpr MaybeUnsigned NA = -1;
-    extern const MaybeUnsigned semitone_diatonics[12];
 }
 
 /// Converts a nybble into a single hex character.
