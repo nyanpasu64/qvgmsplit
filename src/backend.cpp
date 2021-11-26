@@ -82,13 +82,13 @@ public:
             // It seems DataLoader_Deinit calls DataLoader_Reset, which calls
             // DataLoader_CancelLoading. So we don't need to explicitly call
             // DataLoader_CancelLoading beforehand, and IDK why player.cpp does so.
-            return Err(Backend::tr("Failed to extract file, error %1")
+            return Err(Backend::tr("Failed to extract file, error 0x%1")
                 .arg(format_hex_2(status)));
         }
 
         status = player->LoadFile(loader.get());
         if (status) {
-            return Err(Backend::tr("Failed to load file, error %1")
+            return Err(Backend::tr("Failed to load file, error 0x%1")
                 .arg(format_hex_2(status)));
         }
 
@@ -134,7 +134,7 @@ public:
             // It seems DataLoader_Deinit calls DataLoader_Reset, which calls
             // DataLoader_CancelLoading. So we don't need to explicitly call
             // DataLoader_CancelLoading beforehand, and IDK why player.cpp does so.
-            return Err(Backend::tr("Failed to extract file, error %1")
+            return Err(Backend::tr("Failed to extract file, error 0x%1")
                 .arg(format_hex_2(status)));
         }
 
@@ -148,7 +148,7 @@ public:
 
         status = player->LoadFile(loader.get());
         if (status) {
-            return Err(Backend::tr("Failed to load file, error %1")
+            return Err(Backend::tr("Failed to load file, error 0x%1")
                 .arg(format_hex_2(status)));
         }
 
@@ -214,11 +214,7 @@ static QString gtr(
 struct Unit {};
 #define OK  Ok(Unit{})
 
-Result<Unit, QString> asdf(PlayerA & player) {
-    return OK;
-}
-
-Result<Unit, QString> load_song(
+static Result<Unit, QString> _load_song(
     PlayerA & player, QString path, uint32_t sample_rate, uint8_t bit_depth
 ) {
     /* setup the player's output parameters and allocate internal buffers */
@@ -271,7 +267,7 @@ Result<Unit, QString> load_song(
     return OK;
 }
 
-void change_mute(PlayerBase * player) {
+static void _change_mute(PlayerBase * player) {
     UINT8 retVal;
     PLR_DEV_OPTS devOpts;
     int chipID = 0;
