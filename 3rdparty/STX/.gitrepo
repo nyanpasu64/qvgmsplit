@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/git-commands/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/lamarrr/STX.git
+	branch = master
+	commit = 4f55b0c835484cf49d9d562b32b6d642743bf7bf
+	parent = 1a3e5c833e5fb9eb014d9851cf647aac38a4e661
+	method = rebase
+	cmdver = 0.4.3
