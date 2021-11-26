@@ -82,6 +82,8 @@ add_subdirectory("3rdparty/STX")
 ## Application
 
 set(PROJECT_SOURCES
+    src/lib/box_array.h
+    src/lib/copy_move.h
     src/lib/format.h
     src/lib/gtr.h
     src/lib/hv_line.h

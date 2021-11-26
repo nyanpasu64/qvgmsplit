@@ -2,21 +2,34 @@
 
 #include <player/playera.hpp>
 
+#include <QCoreApplication>
 #include <QString>
 
 #include <memory>
 #include <vector>
 
 class Job;
-class JobHandle;
+
+class JobHandle {
+    std::shared_ptr<Job> _job;
+
+public:
+    ~JobHandle();
+    void cancel();
+};
 
 class Backend {
-    std::unique_ptr<Job> _master_audio;
-    std::vector<std::unique_ptr<Job>> _channels;
+    Q_DECLARE_TR_FUNCTIONS(Backend)
+
+    QByteArray _file_data;
+    std::unique_ptr<JobHandle> _master_audio;
+    std::vector<JobHandle> _channels;
 
 public:
     Backend();
     ~Backend();
-    void load_path(QString path);
+
+    /// If non-empty, holds error message.
+    QString load_path(QString path);
 };
 
