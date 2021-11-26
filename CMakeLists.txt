@@ -27,14 +27,13 @@ if (MSVC)
 endif ()
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     list(APPEND options
-        -Wall -Wextra -Wconversion -Wsign-conversion
+        -Wall -Wextra -Wconversion -Wsign-conversion -Wtype-limits
         -Wmissing-declarations
         -Wno-unused-function -Wno-unused-parameter
         -Werror=return-type
     )
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         list(APPEND options
-            -Wtautological-unsigned-zero-compare
             -Wmissing-variable-declarations
         )
     endif()
