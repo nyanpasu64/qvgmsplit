@@ -90,6 +90,7 @@ set(PROJECT_SOURCES
     src/lib/gtr.h
     src/lib/hv_line.h
     src/lib/layout_macros.h
+    src/lib/release_assert.h
     src/lib/trace.h
 
     src/backend.cpp

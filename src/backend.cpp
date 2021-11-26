@@ -1,6 +1,7 @@
 #include "backend.h"
 #include "lib/box_array.h"
 #include "lib/format.h"
+#include "vgm.h"
 
 // File loading
 #include <utils/DataLoader.h>
@@ -116,6 +117,8 @@ public:
 
     std::unique_ptr<PlayerA> _player;
 
+    std::vector<std::vector<ChannelMetadata>> _chip_chan_metadata;
+
 // impl
 public:
     static Result<std::unique_ptr<Metadata>, QString> make(QByteArray file_data) {
@@ -153,10 +156,28 @@ public:
                 .arg(format_hex_2(status)));
         }
 
+        std::vector<PLR_DEV_INFO> devices;
+
+        PlayerBase * engine = player->GetPlayer();
+        engine->GetSongDeviceInfo(devices);
+
+        std::vector<std::vector<ChannelMetadata>> chip_chan_metadata;
+        chip_chan_metadata.reserve(devices.size());
+
+        for (PLR_DEV_INFO const& device : devices) {
+            constexpr UINT8 OPTS = 0x01;  // enable long names
+            const char* chipName = SndEmu_GetDevName(device.type, OPTS, device.devCfg);
+            std::cerr << chipName << "\n";
+
+            chip_chan_metadata.push_back(get_metadata(device));
+        }
+
+
         return Ok(std::make_unique<Metadata>(Metadata {
             move(file_data),
             move(loader),
             move(player),
+            move(chip_chan_metadata),
         }));
     }
 };
@@ -196,15 +217,13 @@ QString Backend::load_path(QString path) {
         _metadata = move(result.value());
     }
 
-    std::vector<PLR_DEV_INFO> devices;
-
-    PlayerBase * engine = _metadata->_player->GetPlayer();
-    engine->GetSongDeviceInfo(devices);
-
-    for (PLR_DEV_INFO const& device : devices) {
-        constexpr UINT8 OPTS = 0x01;  // enable long names
-        const char* chipName = SndEmu_GetDevName(device.type, OPTS, device.devCfg);
-        std::cerr << chipName << "\n";
+    for (auto const& chan_metadata : _metadata->_chip_chan_metadata) {
+        for (auto const& metadata : chan_metadata) {
+            std::cerr
+                << (int) metadata.subchip_idx << " "
+                << (int) metadata.chan_idx << " "
+                << metadata.name << "\n";
+        }
     }
 
     return {};

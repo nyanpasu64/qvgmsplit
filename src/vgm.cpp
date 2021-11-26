@@ -1,36 +1,36 @@
 #include "vgm.h"
+#include "lib/release_assert.h"
 
 #include <stdtype.h>
 #include <emu/SoundDevs.h>
+#include <emu/SoundEmu.h>
+#include <player/playerbase.hpp>
 
-#include <string>
-#include <vector>
+#include <fmt/format.h>
+#include <fmt/compile.h>
 
-struct ChannelMetadata {
-    std::string name;
-    uint8_t subchip_idx;
-    uint8_t chan_idx;
-};
+#include <iterator>  // std::back_inserter
+#include <string_view>
 
-// Based off https://github.com/ValleyBell/in_vgm-libvgm/blob/e8a1fe7981efd49fe4f3712e2c6e70f9a2e3fdb3/dlg_cfg.cpp#L842
-// TODO return std::vector<ChannelMetadata>
-static void ShowMutingCheckBoxes(UINT8 chip_type, UINT8 ChipSet)
-{
+std::vector<ChannelMetadata> get_metadata(const PLR_DEV_INFO &device) {
+    // This is a rewrite of https://github.com/ValleyBell/in_vgm-libvgm/blob/e8a1fe7981ef/dlg_cfg.cpp#L842.
+    // I verified the results look acceptable for YM2608 (sub-chip),
+    // Sega Genesis (PSG+YM2612, no sub-chip), and OPL3 (18 channels) .vgm files.
+
     UINT8 nchannel = 0;
-    const char* channel_names[0x40] = {nullptr};
-    uint32_t mute_mask[2] = {0};
+    std::string_view channel_names[0x40] = {};
 
     // Groups 0 and 1 belong to the chip (muted by PLR_MUTE_OPTS::chnMute[0]),
     // and group 2 belongs to the sub-chip (muted by PLR_MUTE_OPTS::chnMute[1]).
     // For example, when playing YM2608 VGM files, setting PLR_MUTE_OPTS::chnMute[0] = ~0
     // and calling SetDeviceMuting(0, muteOpts) mutes the FM and drum samples,
     // but not PSG.
-    constexpr UINT8 GROUP_SIZE = 8;
     UINT8 ngroup = 0;
+    UINT8 const subchip_from_group[0x04] = {0, 0, 1, 1};
     UINT8 channels_per_group[0x04] = {0};
-    const char* group_names[0x04] = {nullptr};
+    std::string_view group_names[0x04] = {};
 
-    char TempName[0x18] = {};
+    auto chip_type = device.type;
 
     switch(chip_type) {
     case DEVID_SN76496:
@@ -86,7 +86,7 @@ static void ShowMutingCheckBoxes(UINT8 chip_type, UINT8 ChipSet)
 
         channels_per_group[1] = 7;
         group_names[1] = "PCM Chn";
-        channel_names[1 * GROUP_SIZE + 6] = "Delta-T";
+        channel_names[channels_per_group[0] + 6] = "Delta-T";
 
         channels_per_group[2] = 3;
         group_names[2] = "SSG Chn";
@@ -198,61 +198,79 @@ static void ShowMutingCheckBoxes(UINT8 chip_type, UINT8 ChipSet)
         break;
     }
 
-    if (! ngroup)
-    {
-        for (UINT8 chan_idx = 0; chan_idx < nchannel; chan_idx ++)
-        {
-            if (channel_names[chan_idx] == NULL)
-            {
-                if (1 + chan_idx < 10)
-                    sprintf(TempName, "Channel %u", 1 + chan_idx);
-                else
-                    sprintf(TempName, "Channel %u (%c)", 1 + chan_idx, 'A' + (chan_idx - 9));
-            }
+    constexpr uint8_t OPTS = 0x01;  // enable long names
+    std::string const chip_name = SndEmu_GetDevName(device.type, OPTS, device.devCfg);
 
-            bool muted;
-            if (chip_type == DEVID_YMF278B)
-                muted = (mute_mask[1] >> chan_idx) & 0x01;
+    std::vector<ChannelMetadata> out;
+    out.reserve(nchannel);
+
+    fmt::memory_buffer name;
+    name.append(chip_name.data(), chip_name.data() + chip_name.size());
+    name.push_back(' ');
+    size_t const chip_name_end = name.size();
+
+    auto format_channel_name = [&channel_names](
+        fmt::memory_buffer & out, std::string_view group_name, uint8_t chan_in_group
+    ) {
+        if (channel_names[chan_in_group].empty()) {
+            if (1 + chan_in_group < 10)
+                fmt::format_to(std::back_inserter(out),
+                    "{} {}", group_name, 1 + chan_in_group);
             else
-                muted = (mute_mask[0] >> chan_idx) & 0x01;
+                fmt::format_to(std::back_inserter(out),
+                    "{} {} ({})",
+                    group_name, 1 + chan_in_group, (char) ('A' + (chan_in_group - 9)));
+        } else {
+            out.append(
+                channel_names[chan_in_group].begin(), channel_names[chan_in_group].end()
+            );
         }
-    }
-    else
-    {
-        /// Divides GUI checkboxes into 3 groups of 8, and labels each group differently.
-        for (UINT8 group_idx = 0; group_idx < ngroup; group_idx ++)
-        {
-            UINT8 const gui_chan_0 = group_idx * GROUP_SIZE;
-            if (group_names[group_idx] == NULL)
-                group_names[group_idx] = "Channel";
+    };
 
-            UINT8 chan_idx = 0;
-            UINT8 gui_chan = gui_chan_0;
-            for (; chan_idx < channels_per_group[group_idx]; chan_idx ++, gui_chan ++)
+    if (!ngroup) {
+        uint8_t subchip_idx = 0;
+        // I have no clue why the OPL4 uses mute mask index 1.
+        if (chip_type == DEVID_YMF278B) {
+            subchip_idx = 1;
+        }
+
+        for (UINT8 chan_idx = 0; chan_idx < nchannel; chan_idx ++) {
+            name.resize(chip_name_end);
+            format_channel_name(name, "Channel", chan_idx);
+
+            out.push_back(ChannelMetadata {
+                .subchip_idx = subchip_idx,
+                .chan_idx = chan_idx,
+                .name = std::string(name.begin(), name.size()),
+            });
+        }
+    } else {
+        uint8_t chan_per_subchip[2] = {0, 0};
+
+        for (UINT8 group_idx = 0; group_idx < ngroup; group_idx++) {
+            auto const nchan_in_group = channels_per_group[group_idx];
+            if (nchan_in_group == 0) {
+                continue;
+            }
+
+            uint8_t const subchip_idx = subchip_from_group[group_idx];
+            for (
+                uint8_t chan_in_group = 0;
+                chan_in_group < nchan_in_group;
+                chan_in_group++)
             {
-                if (channel_names[gui_chan] == NULL)
-                {
-                    if (1 + chan_idx < 10)
-                        sprintf(TempName, "%s %u", group_names[group_idx], 1 + chan_idx);
-                    else
-                        sprintf(TempName, "%s %u (%c)", group_names[group_idx], 1 + chan_idx,
-                                'A' + (chan_idx - 9));
-                }
+                name.resize(chip_name_end);
+                uint8_t chan_in_subchip = chan_per_subchip[subchip_idx]++;
+                format_channel_name(name, group_names[group_idx], chan_in_group);
 
-                bool checked;
-                switch(group_idx)
-                {
-                case 0:
-                    checked = (mute_mask[0] >> chan_idx) & 0x01;
-                    break;
-                case 1:
-                    checked = (mute_mask[0] >> (channels_per_group[0] + chan_idx)) & 0x01;
-                    break;
-                case 2:
-                    checked = (mute_mask[1] >> chan_idx) & 0x01;
-                    break;
-                }
+                out.push_back(ChannelMetadata {
+                    .subchip_idx = subchip_idx,
+                    .chan_idx = chan_in_subchip,
+                    .name = std::string(name.begin(), name.size()),
+                });
             }
         }
     }
+    release_assert_equal(out.size(), nchannel);
+    return out;
 }
