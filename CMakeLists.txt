@@ -69,6 +69,11 @@ find_package(QT NAMES Qt6 Qt5 COMPONENTS Widgets REQUIRED)
 set(Qt Qt${QT_VERSION_MAJOR})
 find_package(${Qt} COMPONENTS Widgets REQUIRED)
 
+set(BUILD_TESTS FALSE CACHE BOOL "")
+set(BUILD_PLAYER FALSE CACHE BOOL "")
+set(BUILD_VGM2WAV FALSE CACHE BOOL "")
+set(USE_SANITIZERS FALSE CACHE BOOL "")
+add_subdirectory("3rdparty/libvgm")
 
 ## Application
 
@@ -91,7 +96,10 @@ else()
 endif()
 
 target_compile_options(qvgmsplit PRIVATE "${options}")
-target_link_libraries(qvgmsplit PRIVATE ${Qt}::Widgets)
+target_link_libraries(qvgmsplit PRIVATE
+    ${Qt}::Widgets
+    vgm-player
+)
 
 set_target_properties(qvgmsplit PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER qvgmsplit.nyanpasu64.example
