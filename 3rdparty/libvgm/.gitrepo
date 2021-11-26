@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/git-commands/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/ValleyBell/libvgm.git
+	branch = master
+	commit = 57713471eef1db49e84f39d4ee3ac83662f01316
+	parent = 28da25a38eb9dbe58cd3fb2fad21055f7f7acec5
+	method = rebase
+	cmdver = 0.4.3
