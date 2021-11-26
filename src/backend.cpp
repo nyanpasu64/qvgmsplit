@@ -217,6 +217,8 @@ QString Backend::load_path(QString path) {
         }
     }
 
+    // TODO load _channels
+
     return {};
 }
 
