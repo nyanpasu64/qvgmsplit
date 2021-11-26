@@ -1,9 +1,13 @@
 #include "mainwindow.h"
 #include "lib/layout_macros.h"
 
+// Layout
 #include <QBoxLayout>
 #include <QMenuBar>
 #include <QToolBar>
+
+// Qt
+#include <QFileDialog>
 
 class MainWindowImpl : public MainWindow {
     QAction * _open;
@@ -46,10 +50,36 @@ public:
         }
 
         // Bind actions
+        _open->setShortcuts(QKeySequence::Open);
+        connect(_open, &QAction::triggered, this, &MainWindowImpl::on_open);
+
+        _render->setShortcut(QKeySequence(tr("Ctrl+R")));
+        connect(_render, &QAction::triggered, this, &MainWindowImpl::on_render);
+
         _exit->setShortcuts(QKeySequence::Quit);
         connect(_exit, &QAction::triggered, this, &MainWindowImpl::close);
+
+        // TODO load file
     }
 
+    void on_open() {
+        // TODO save recent dirs, using SQLite or QSettings
+        auto path = QFileDialog::getOpenFileName(
+            this,
+            tr("Open File"),
+            QString(),
+            tr("VGM files (*.vgm);;All files (*)"));
+
+        if (path.isEmpty()) {
+            return;
+        }
+
+        // TODO open_path(std::move(path));
+    }
+
+    void on_render() {
+
+    }
 };
 
 std::unique_ptr<MainWindow> MainWindow::new_with_path(QString path) {
