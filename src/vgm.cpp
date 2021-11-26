@@ -209,10 +209,11 @@ std::vector<ChannelMetadata> get_metadata(const PLR_DEV_INFO &device) {
     name.push_back(' ');
     size_t const chip_name_end = name.size();
 
-    auto format_channel_name = [&channel_names](
+    uint8_t global_chan = 0;
+    auto format_channel_name = [&global_chan, &channel_names](
         fmt::memory_buffer & out, std::string_view group_name, uint8_t chan_in_group
     ) {
-        if (channel_names[chan_in_group].empty()) {
+        if (channel_names[global_chan].empty()) {
             if (1 + chan_in_group < 10)
                 fmt::format_to(std::back_inserter(out),
                     "{} {}", group_name, 1 + chan_in_group);
@@ -222,9 +223,10 @@ std::vector<ChannelMetadata> get_metadata(const PLR_DEV_INFO &device) {
                     group_name, 1 + chan_in_group, (char) ('A' + (chan_in_group - 9)));
         } else {
             out.append(
-                channel_names[chan_in_group].begin(), channel_names[chan_in_group].end()
+                channel_names[global_chan].begin(), channel_names[global_chan].end()
             );
         }
+        global_chan++;
     };
 
     if (!ngroup) {
