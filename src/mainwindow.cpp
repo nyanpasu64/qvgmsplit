@@ -67,6 +67,7 @@ public:
 
     void load_path() {
         // TODO PlayerBase::GetDeviceOptions(UINT32 id, PLR_DEV_OPTS& devOpts) const = 0;
+        _backend.load_path(_path);
     }
 
     void on_open() {

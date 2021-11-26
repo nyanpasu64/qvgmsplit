@@ -16,12 +16,46 @@
 #include <stx/result.h>
 
 #include <QCoreApplication>
-#include <QString>
+
+#include <atomic>
 
 using stx::Result, stx::Ok, stx::Err;
 
+class Job {
+    std::atomic<bool> _cancel;
+
+    friend class JobHandle;
+};
+
+class JobHandle {
+    std::shared_ptr<Job> _job;
+
+    void cancel() {
+        _job->_cancel.store(true, std::memory_order_relaxed);
+    }
+};
+
 Backend::Backend() {
 
+}
+
+Backend::~Backend() = default;
+
+static void setup(PlayerA & player) {
+    /* Register all player engines.
+     * libvgm will automatically choose the correct one depending on the file format. */
+    player.RegisterPlayerEngine(new VGMPlayer);
+    player.RegisterPlayerEngine(new S98Player);
+    player.RegisterPlayerEngine(new DROPlayer);
+    player.RegisterPlayerEngine(new GYMPlayer);
+}
+
+void Backend::load_path(QString path) {
+    _master_audio.reset();
+    _channels.clear();
+
+    auto master_audio = std::make_unique<PlayerA>();
+    setup(*master_audio);
 }
 
 // TODO put in header
@@ -39,15 +73,6 @@ static constexpr UINT32 BUFFER_LEN = 2048;
 
 struct Unit {};
 #define OK  Ok(Unit{})
-
-void setup(PlayerA & player) {
-    /* Register all player engines.
-     * libvgm will automatically choose the correct one depending on the file format. */
-    player.RegisterPlayerEngine(new VGMPlayer);
-    player.RegisterPlayerEngine(new S98Player);
-    player.RegisterPlayerEngine(new DROPlayer);
-    player.RegisterPlayerEngine(new GYMPlayer);
-}
 
 Result<Unit, QString> asdf(PlayerA & player) {
     return OK;
