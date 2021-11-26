@@ -7,11 +7,17 @@
 
 #include <memory>
 #include <vector>
+#include <cstdint>
 
 class Metadata;
 class Job;
 
 class JobHandle {
+    QString name;
+    int16_t chip_id;
+    int16_t chan_id;
+
+    /// Nullptr when not in a render.
     std::shared_ptr<Job> _job;
 
 public:

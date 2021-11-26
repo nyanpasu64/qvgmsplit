@@ -8,11 +8,11 @@
 
 // Playback
 #include <player/playera.hpp>
-
 #include <player/vgmplayer.hpp>
 #include <player/s98player.hpp>
 #include <player/droplayer.hpp>
 #include <player/gymplayer.hpp>
+#include <emu/SoundEmu.h>
 
 #include <stx/result.h>
 
@@ -20,6 +20,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <iostream>
 
 using std::move;
 using stx::Result, stx::Ok, stx::Err;
@@ -195,7 +196,16 @@ QString Backend::load_path(QString path) {
         _metadata = move(result.value());
     }
 
-    // TODO load _channels
+    std::vector<PLR_DEV_INFO> devices;
+
+    PlayerBase * engine = _metadata->_player->GetPlayer();
+    engine->GetSongDeviceInfo(devices);
+
+    for (PLR_DEV_INFO const& device : devices) {
+        constexpr UINT8 OPTS = 0x01;  // enable long names
+        const char* chipName = SndEmu_GetDevName(device.type, OPTS, device.devCfg);
+        std::cerr << chipName << "\n";
+    }
 
     return {};
 }

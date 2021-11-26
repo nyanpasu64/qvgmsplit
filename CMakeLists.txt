@@ -91,11 +91,13 @@ set(PROJECT_SOURCES
     src/lib/layout_macros.h
     src/lib/trace.h
 
+    src/backend.cpp
+    src/backend.h
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
-    src/backend.cpp
-    src/backend.h
+    src/vgm.cpp
+    src/vgm.h
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
