@@ -90,7 +90,6 @@ set(PROJECT_SOURCES
     src/mainwindow.h
     src/backend.cpp
     src/backend.h
-    src/test.cpp
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
