@@ -109,13 +109,7 @@ void JobHandle::cancel() {
 
 class Metadata {
 public:
-    /// Implicitly shared, read-only.
-    QByteArray _file_data;
-
-    /// Points within _file_data, unique per job.
-    BoxDataLoader _loader;
-
-    std::unique_ptr<PlayerA> _player;
+    uint32_t _player_type;
 
     std::vector<std::vector<ChannelMetadata>> _chip_chan_metadata;
 
@@ -172,12 +166,9 @@ public:
             chip_chan_metadata.push_back(get_metadata(device));
         }
 
-
         return Ok(std::make_unique<Metadata>(Metadata {
-            move(file_data),
-            move(loader),
-            move(player),
-            move(chip_chan_metadata),
+            ._player_type = engine->GetPlayerType(),
+            ._chip_chan_metadata = move(chip_chan_metadata),
         }));
     }
 };
