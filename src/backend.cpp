@@ -55,7 +55,7 @@ Result<Unit, QString> asdf(PlayerA & player) {
 
 using format::format_hex_2;
 
-Result<PlayerBase *, QString> load_song(
+Result<Unit, QString> load_song(
     PlayerA & player, QString path, uint32_t sample_rate, uint8_t bit_depth
 ) {
     /* setup the player's output parameters and allocate internal buffers */
@@ -104,7 +104,12 @@ Result<PlayerBase *, QString> load_song(
             .arg(format_hex_2(status)));
     }
 
-    return Ok(player.GetPlayer());
+    auto engine = player.GetPlayer();
+    if (VGMPlayer* vgmplay = dynamic_cast<VGMPlayer*>(engine)) {
+        player.SetLoopCount(vgmplay->GetModifiedLoopCount(maxLoops));
+    }
+
+    return OK;
 }
 
 void change_mute(PlayerBase * player) {
