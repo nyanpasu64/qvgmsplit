@@ -374,6 +374,9 @@ public:
         connect(_exit, &QAction::triggered, this, &MainWindowImpl::close);
 
         // TODO load file
+        if (!_file_path.isEmpty()) {
+            load_path();
+        }
     }
 
     void load_path() {
