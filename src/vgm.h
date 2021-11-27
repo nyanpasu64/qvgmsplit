@@ -6,6 +6,7 @@
 
 struct PLR_DEV_INFO;
 
+/// Uniquely identifies a channel within a single chip.
 /// The metadata used to mute a particular channel by setting
 /// PLR_MUTE_OPTS::chnMute[subchip_idx] |= 1u << chan_idx
 /// and calling SetDeviceMuting(chip_idx, muteOpts).

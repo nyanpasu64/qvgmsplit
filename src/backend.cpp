@@ -1,5 +1,6 @@
 #include "backend.h"
 #include "lib/box_array.h"
+#include "lib/enumerate.h"
 #include "lib/format.h"
 #include "vgm.h"
 
@@ -111,7 +112,7 @@ class Metadata {
 public:
     uint32_t _player_type;
 
-    std::vector<std::vector<ChannelMetadata>> _chip_chan_metadata;
+    std::vector<FlatChannelMetadata> _channel_metadata;
 
 // impl
 public:
@@ -155,20 +156,27 @@ public:
         PlayerBase * engine = player->GetPlayer();
         engine->GetSongDeviceInfo(devices);
 
-        std::vector<std::vector<ChannelMetadata>> chip_chan_metadata;
-        chip_chan_metadata.reserve(devices.size());
+        std::vector<FlatChannelMetadata> channel_metadata;
 
-        for (PLR_DEV_INFO const& device : devices) {
+        for (auto const& [chip_idx, device] : enumerate<uint8_t>(devices)) {
             constexpr UINT8 OPTS = 0x01;  // enable long names
             const char* chipName = SndEmu_GetDevName(device.type, OPTS, device.devCfg);
             std::cerr << chipName << "\n";
 
-            chip_chan_metadata.push_back(get_metadata(device));
+            for (ChannelMetadata & meta : get_metadata(device)) {
+                channel_metadata.push_back(FlatChannelMetadata {
+                    .name = move(meta.name),
+                    .chip_idx = chip_idx,
+                    .subchip_idx = meta.subchip_idx,
+                    .chan_idx = meta.chan_idx,
+                    .enabled = true,
+                });
+            }
         }
 
         return Ok(std::make_unique<Metadata>(Metadata {
             ._player_type = engine->GetPlayerType(),
-            ._chip_chan_metadata = move(chip_chan_metadata),
+            ._channel_metadata = move(channel_metadata),
         }));
     }
 };
@@ -208,13 +216,12 @@ QString Backend::load_path(QString path) {
         _metadata = move(result.value());
     }
 
-    for (auto const& chan_metadata : _metadata->_chip_chan_metadata) {
-        for (auto const& metadata : chan_metadata) {
-            std::cerr
-                << (int) metadata.subchip_idx << " "
-                << (int) metadata.chan_idx << " "
-                << metadata.name << "\n";
-        }
+    for (auto const& metadata : _metadata->_channel_metadata) {
+        std::cerr
+            << (int) metadata.chip_idx << " "
+            << (int) metadata.subchip_idx << " "
+            << (int) metadata.chan_idx << " "
+            << metadata.name << "\n";
     }
 
     // TODO load _channels
