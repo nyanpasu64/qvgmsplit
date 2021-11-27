@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "backend.h"
 #include "lib/layout_macros.h"
+#include "lib/release_assert.h"
 
 // Layout
 #include <QBoxLayout>
@@ -13,11 +14,13 @@
 #include <QTableView>
 
 // Qt
+#include <QDebug>
 #include <QErrorMessage>
 #include <QFileDialog>
 #include <QFileInfo>
 
 #include <algorithm>  // std::rotate
+#include <set>
 #include <utility>  // std::move
 
 static void setup_error_dialog(QErrorMessage & dialog) {
@@ -189,66 +192,142 @@ public:
         return Qt::MoveAction;
     }
 
-    /// For leftwards drags, moves [source, source + count) to [dest, dest + count).
-    /// For rightwards drags, moves [source, source + count) to [dest - count, dest).
-    bool moveRows(
-        QModelIndex const& sourceParent,
-        int i_source,
-        int i_count,
-        const QModelIndex &destinationParent,
-        int i_dest)
-    override {
-        // This is not a tree view; reject rows with parents..
-        if (sourceParent.isValid() || destinationParent.isValid()) {
-            return false;
-        }
+    struct Movement {
+        size_t begin;
+        size_t rotate_to_begin;
+        size_t end;
+    };
+
+    static Movement calc_move(size_t n, int i_source, int i_count, int i_dest) {
         // Reject negative inputs.
         if (i_source < 0 || i_count < 0 || i_dest < 0) {
-            return false;
+            return {};
         }
 
         // Reject empty drags.
         if (i_count == 0) {
-            return false;
+            return {};
         }
 
-        // Reject moving row 0 (master audio) out of place.
-        if (i_source < CHANNEL_0_ROW || i_dest < CHANNEL_0_ROW) {
-            return false;
-        }
-
-        auto & metadata = metadata_mut();
-        auto const n = metadata.size();
         auto const source = (size_t) i_source;
         auto const count = (size_t) i_count;
         auto const dest = (size_t) i_dest;
 
         // Reject out-of-bounds drags.
         if (source > n || count > n || source + count > n || dest > n) {
-            return false;
+            return {};
         }
 
         // Reject dragging a region into itself ([source, source + count]).
         if (!(dest < source || dest > source + count)) {
-            return false;
+            return {};
         }
 
-        auto data = metadata.data();
         if (dest < source) {
             // Leftwards drags.
-            std::rotate(
-                data + dest,
-                data + source,
-                data + source + count);
+            return Movement {
+                dest,
+                source,
+                source + count,
+            };
         } else {
             // Rightward drags.
-            std::rotate(
-                data + source,
-                data + source + count,
-                data + dest);
+            return Movement {
+                source,
+                source + count,
+                dest,
+            };
         }
-        // QAIM emits QAbstractItemModel::rowsMoved for us.
-        return true;
+    }
+
+    /// Called by QAbstractItemView::dropEvent().
+    bool dropMimeData(
+        QMimeData const* data,
+        Qt::DropAction action,
+        int insert_row,
+        int insert_column,
+        QModelIndex const& replace_index)
+    override {
+        // Based off QAbstractListModel::dropMimeData().
+        if (!data || action != Qt::MoveAction)
+            return false;
+
+        QStringList types = mimeTypes();
+        if (types.isEmpty())
+            return false;
+        QString format = types.at(0);
+        if (!data->hasFormat(format))
+            return false;
+
+        QByteArray encoded = data->data(format);
+        QDataStream stream(&encoded, QIODevice::ReadOnly);
+
+        // Only allow dropping between rows.
+        if (!replace_index.isValid() && insert_row != -1) {
+            std::set<int> dragged_rows;
+            QMap<int, QVariant> _v;
+
+            while (!stream.atEnd()) {
+                // stream contains one element per cell, not per row.
+                int drag_row, _c;
+                stream >> drag_row >> _c >> _v;
+                dragged_rows.insert(drag_row);
+            }
+
+            auto & old_metadata = metadata_mut();
+            auto n = old_metadata.size();
+
+            QModelIndexList from, to;
+            from.reserve((int) n);
+            to.reserve((int) n);
+
+            std::vector<FlatChannelMetadata> new_metadata;
+            new_metadata.reserve(n);
+
+            auto skip_row = [&dragged_rows, row = dragged_rows.begin()](int i) mutable -> bool {
+                if (row != dragged_rows.end() && i == *row) {
+                    row++;
+                    return true;
+                }
+                return false;
+            };
+            auto push_idx = [this, &from, &to, &old_metadata, &new_metadata](
+                int old_i
+            ) {
+                auto new_i = (int) new_metadata.size();
+                for (int col = 0; col < ColumnCount; col++) {
+                    from.push_back(index(old_i, col));
+                    to.push_back(index(new_i, col));
+                }
+                new_metadata.push_back(std::move(old_metadata[(size_t) old_i]));
+            };
+
+            for (int old_i = 0; (size_t) old_i < n; old_i++) {
+                if (old_i == insert_row) {
+                    for (int dragged_row : dragged_rows) {
+                        push_idx(dragged_row);
+                    }
+                }
+                if (!skip_row(old_i)) {
+                    push_idx(old_i);
+                }
+            }
+
+            release_assert_equal(new_metadata.size(), n);
+            changePersistentIndexList(from, to);
+            old_metadata = std::move(new_metadata);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /// removeRows() is called by QAbstractItemView::startDrag() when the user drags
+    /// two items to swap them. But we want to swap items, not overwrite one with
+    /// another. So ignore the call.
+    bool removeRows(int row, int count, const QModelIndex & parent) override {
+        return false;
     }
 };
 
