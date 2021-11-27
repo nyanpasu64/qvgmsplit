@@ -55,7 +55,7 @@ public:
             _number_channels = number_channels;
             emit dataChanged(
                 index(CHANNEL_0_ROW, NameColumn),
-                index((int) metadata().size() - 1, NameColumn));
+                index((int) get_channels().size() - 1, NameColumn));
         }
     }
 
@@ -68,11 +68,11 @@ public:
     }
 
 private:
-    std::vector<FlatChannelMetadata> const& metadata() const {
+    std::vector<FlatChannelMetadata> const& get_channels() const {
         return _backend->channels();
     }
 
-    std::vector<FlatChannelMetadata> & metadata_mut() {
+    std::vector<FlatChannelMetadata> & channels_mut() {
         return _backend->channels_mut();
     }
 
@@ -84,7 +84,7 @@ public:
             return 0;
         } else {
             // The root has items.
-            return int(metadata().size());
+            return int(get_channels().size());
         }
     }
 
@@ -99,7 +99,7 @@ public:
     }
 
     QVariant data(QModelIndex const & index, int role) const override {
-        auto & metadata = this->metadata();
+        auto & channels = this->get_channels();
 
         if (!index.isValid() || index.parent().isValid()) {
             return {};
@@ -111,7 +111,7 @@ public:
         }
 
         auto row = (size_t) index.row();
-        if (row >= metadata.size()) {
+        if (row >= channels.size()) {
             return {};
         }
 
@@ -122,13 +122,13 @@ public:
                 if (_number_channels && row >= CHANNEL_0_ROW) {
                     return QStringLiteral("%1 - %2")
                         .arg(row)
-                        .arg(QString::fromStdString(metadata[row].name));
+                        .arg(QString::fromStdString(channels[row].name));
                 } else {
-                    return QString::fromStdString(metadata[row].name);
+                    return QString::fromStdString(channels[row].name);
                 }
 
             case Qt::CheckStateRole:
-                return metadata[row].enabled ? Qt::Checked : Qt::Unchecked;
+                return channels[row].enabled ? Qt::Checked : Qt::Unchecked;
 
             default: return {};
             }
@@ -152,13 +152,13 @@ public:
         }
 
         if (role == Qt::CheckStateRole) {
-            auto & metadata = metadata_mut();
+            auto & channels = channels_mut();
 
             auto row = (size_t) index.row();
-            if (row >= metadata.size()) {
+            if (row >= channels.size()) {
                 return false;
             }
-            metadata[row].enabled = value == Qt::Checked;
+            channels[row].enabled = value == Qt::Checked;
             emit dataChanged(index, index, {Qt::CheckStateRole});
             return true;
         }
@@ -226,15 +226,15 @@ public:
                 dragged_rows.insert(drag_row);
             }
 
-            auto & old_metadata = metadata_mut();
-            auto n = old_metadata.size();
+            auto & old_channels = channels_mut();
+            auto n = old_channels.size();
 
             QModelIndexList from, to;
             from.reserve((int) n);
             to.reserve((int) n);
 
-            std::vector<FlatChannelMetadata> new_metadata;
-            new_metadata.reserve(n);
+            std::vector<FlatChannelMetadata> new_channels;
+            new_channels.reserve(n);
 
             auto skip_row =
                 [&dragged_rows, row = dragged_rows.begin()](int i) mutable -> bool
@@ -245,15 +245,15 @@ public:
                 }
                 return false;
             };
-            auto push_idx = [this, &from, &to, &old_metadata, &new_metadata](
+            auto push_idx = [this, &from, &to, &old_channels, &new_channels](
                 int old_i
             ) {
-                auto new_i = (int) new_metadata.size();
+                auto new_i = (int) new_channels.size();
                 for (int col = 0; col < ColumnCount; col++) {
                     from.push_back(index(old_i, col));
                     to.push_back(index(new_i, col));
                 }
-                new_metadata.push_back(std::move(old_metadata[(size_t) old_i]));
+                new_channels.push_back(std::move(old_channels[(size_t) old_i]));
             };
 
             for (int old_i = 0; (size_t) old_i < n; old_i++) {
@@ -272,9 +272,9 @@ public:
                 }
             }
 
-            release_assert_equal(new_metadata.size(), n);
+            release_assert_equal(new_channels.size(), n);
             changePersistentIndexList(from, to);
-            old_metadata = std::move(new_metadata);
+            old_channels = std::move(new_channels);
 
             return true;
         }
