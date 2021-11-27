@@ -1,7 +1,8 @@
 #include "mainwindow.h"
-#include "backend.h"
+#include "lib/defer.h"
 #include "lib/layout_macros.h"
 #include "lib/release_assert.h"
+#include "lib/unwrap.h"
 
 // Layout
 #include <QBoxLayout>
@@ -33,11 +34,11 @@ static void setup_error_dialog(QErrorMessage & dialog) {
 
 class ChipsModel final : public QAbstractListModel {
 private:
-    Backend * _backend;
+    MainWindow * _win;
 
 public:
-    explicit ChipsModel(Backend * backend, QObject *parent = nullptr)
-        : _backend(backend)
+    explicit ChipsModel(MainWindow * win, QObject *parent = nullptr)
+        : _win(win)
     {}
 
     void begin_reset_model() {
@@ -50,11 +51,11 @@ public:
 
 private:
     std::vector<ChipMetadata> const& get_chips() const {
-        return _backend->chips();
+        return _win->_backend.chips();
     }
 
     std::vector<ChipMetadata> & chips_mut() const {
-        return _backend->chips_mut();
+        return _win->_backend.chips_mut();
     }
 
 // impl QAbstractItemModel
@@ -197,8 +198,9 @@ public:
             release_assert_equal(new_chips.size(), n);
             changePersistentIndexList(from, to);
             old_chips = std::move(new_chips);
-            _backend->on_chips_changed();
 
+            auto tx = _win->edit_unwrap();
+            tx.chips_changed();
             return true;
         }
 
@@ -387,9 +389,8 @@ public:
     }
 };
 
-class MainWindowImpl : public MainWindow {
-    Backend _backend;
-
+class MainWindowImpl final : public MainWindow {
+public:
     QErrorMessage _error_dialog{this};
 
     ChipsModel _chips_model;
@@ -406,9 +407,17 @@ class MainWindowImpl : public MainWindow {
     QString _file_path;
 
 public:
+    std::optional<StateTransaction> edit_state() final {
+        return StateTransaction::make(this);
+    }
+
+    StateTransaction edit_unwrap() final {
+        return unwrap(edit_state());
+    }
+
     MainWindowImpl(QWidget *parent, QString path)
         : MainWindow(parent)
-        , _chips_model(&_backend)
+        , _chips_model(this)
         , _channels_model(&_backend)
         , _file_path(std::move(path))
     {
@@ -482,9 +491,9 @@ public:
         setWindowFilePath(_file_path);
         // setWindowModified(false);
 
-        _channels_model.begin_reset_model();
+        auto tx = edit_unwrap();
+        tx.file_replaced();
         auto err = _backend.load_path(_file_path);
-        _channels_model.end_reset_model();
 
         if (!err.isEmpty()) {
             _error_dialog.close();
@@ -515,4 +524,85 @@ public:
 
 std::unique_ptr<MainWindow> MainWindow::new_with_path(QString path) {
     return std::make_unique<MainWindowImpl>(nullptr, std::move(path));
+}
+
+// # GUI state mutation tracking (StateTransaction):
+
+StateTransaction::StateTransaction(MainWindowImpl *win)
+    : _win(win)
+    , _uncaught_exceptions(std::uncaught_exceptions())
+{
+    assert(!win->_backend._during_update);
+    state_mut()._during_update = true;
+}
+
+std::optional<StateTransaction> StateTransaction::make(MainWindowImpl *win) {
+    if (win->_backend._during_update) {
+        return {};
+    }
+    return StateTransaction(win);
+}
+
+StateTransaction::StateTransaction(StateTransaction && other) noexcept
+    : _win(other._win)
+    , _uncaught_exceptions(other._uncaught_exceptions)
+    , _queued_updates(other._queued_updates)
+{
+    other._win = nullptr;
+}
+
+StateTransaction::~StateTransaction() noexcept(false) {
+    if (_win == nullptr) {
+        return;
+    }
+    auto & state = state_mut();
+    defer {
+        state._during_update = false;
+    };
+
+    // If unwinding, skip updating the GUI; we don't want to do work during unwinding.
+    if (std::uncaught_exceptions() != _uncaught_exceptions) {
+        return;
+    }
+
+    auto e = _queued_updates;
+    using E = StateUpdateFlag;
+
+    if (e & E::FileReplaced) {
+        _win->_chips_model.end_reset_model();
+    }
+    if (e & E::ChipsEdited) {
+        if (!(e & E::FileReplaced)) {
+            _win->_backend.sort_channels();
+        }
+        _win->_channels_model.end_reset_model();
+    }
+}
+
+Backend const& StateTransaction::state() const {
+    return _win->_backend;
+}
+
+Backend & StateTransaction::state_mut() {
+    return _win->_backend;
+}
+
+using E = StateUpdateFlag;
+
+void StateTransaction::file_replaced() {
+    if (!(_queued_updates & E::ChipsEdited)) {
+        _win->_channels_model.begin_reset_model();
+    }
+    if (!(_queued_updates & E::FileReplaced)) {
+        _win->_chips_model.begin_reset_model();
+    }
+    _queued_updates |= E::All;
+}
+
+void StateTransaction::chips_changed() {
+    if (!(_queued_updates & E::ChipsEdited)) {
+        _win->_channels_model.begin_reset_model();
+        _queued_updates |= E::ChipsEdited;
+    }
+
 }

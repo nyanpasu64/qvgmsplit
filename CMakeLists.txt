@@ -85,6 +85,7 @@ add_subdirectory("3rdparty/STX")
 set(PROJECT_SOURCES
     src/lib/box_array.h
     src/lib/copy_move.h
+    src/lib/defer.h
     src/lib/enumerate.h
     src/lib/format.cpp
     src/lib/format.h
@@ -93,6 +94,7 @@ set(PROJECT_SOURCES
     src/lib/layout_macros.h
     src/lib/release_assert.h
     src/lib/trace.h
+    src/lib/unwrap.h
 
     src/backend.cpp
     src/backend.h

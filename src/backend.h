@@ -43,9 +43,13 @@ struct FlatChannelMetadata {
 class Backend {
     Q_DECLARE_TR_FUNCTIONS(Backend)
 
+    /// Whether the GUI is being updated in response to events.
+    bool _during_update = false;
+
     QByteArray _file_data;
     std::unique_ptr<Metadata> _metadata;
 
+    friend class StateTransaction;
 public:
     Backend();
     ~Backend();
@@ -55,7 +59,7 @@ public:
 
     std::vector<ChipMetadata> const& chips() const;
     std::vector<ChipMetadata> & chips_mut();
-    void on_chips_changed();
+    void sort_channels();
 
     /// Includes an extra entry for "Master Audio".
     std::vector<FlatChannelMetadata> const& channels() const;

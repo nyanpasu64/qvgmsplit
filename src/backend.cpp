@@ -271,7 +271,7 @@ std::vector<ChipMetadata> & Backend::chips_mut() {
     return _metadata->_chips;
 }
 
-void Backend::on_chips_changed() {
+void Backend::sort_channels() {
     auto const& chips = _metadata->_chips;
     std::vector<uint8_t> chip_idx_to_order(chips.size());
     for (auto const& [i, chip] : enumerate<uint8_t>(chips)) {
