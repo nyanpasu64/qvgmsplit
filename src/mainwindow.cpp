@@ -19,6 +19,8 @@
 
 // Qt
 #include <QDebug>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QErrorMessage>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -429,6 +431,7 @@ public:
         , _file_path(std::move(path))
     {
         setup_error_dialog(_error_dialog);
+        setAcceptDrops(true);
 
         // Setup GUI layout
 
@@ -537,6 +540,26 @@ public:
 
     void on_render() {
 
+    }
+
+// impl QWidget
+    void dragEnterEvent(QDragEnterEvent *event) override {
+        QMimeData const* mime = event->mimeData();
+        auto urls = mime->urls();
+        qDebug() << urls;
+        if (!urls.isEmpty() && urls[0].isLocalFile()) {
+            event->acceptProposedAction();
+        }
+    }
+
+    void dropEvent(QDropEvent *event) override {
+        QMimeData const* mime = event->mimeData();
+        auto urls = mime->urls();
+        qDebug() << urls;
+        if (!urls.isEmpty() && urls[0].isLocalFile()) {
+            _file_path = urls[0].toLocalFile();
+            load_path();
+        }
     }
 };
 
