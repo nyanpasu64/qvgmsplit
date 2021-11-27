@@ -428,7 +428,6 @@ public:
         : MainWindow(parent)
         , _chips_model(this)
         , _channels_model(&_backend)
-        , _file_path(std::move(path))
     {
         setup_error_dialog(_error_dialog);
         setAcceptDrops(true);
@@ -491,12 +490,27 @@ public:
         connect(_exit, &QAction::triggered, this, &MainWindowImpl::close);
 
         // TODO load file
-        if (!_file_path.isEmpty()) {
-            load_path();
+        if (!path.isEmpty()) {
+            load_path(std::move(path));
         }
     }
 
-    void load_path() {
+    void load_path(QString file_path) {
+        auto tx = edit_unwrap();
+        // Should be called before Backend::load_path() overwrites metadata.
+        tx.file_replaced();
+
+        auto err = _backend.load_path(file_path);
+
+        if (!err.isEmpty()) {
+            _error_dialog.close();
+            _error_dialog.showMessage(err);
+        } else {
+            _file_path = file_path;
+        }
+    }
+
+    void reload_title() {
         _file_title = (!_file_path.isEmpty())
             ? QFileInfo(_file_path).fileName()
             : tr("Untitled");
@@ -511,15 +525,6 @@ public:
 
         setWindowFilePath(_file_path);
         // setWindowModified(false);
-
-        auto tx = edit_unwrap();
-        tx.file_replaced();
-        auto err = _backend.load_path(_file_path);
-
-        if (!err.isEmpty()) {
-            _error_dialog.close();
-            _error_dialog.showMessage(err);
-        }
     }
 
     void on_open() {
@@ -534,8 +539,7 @@ public:
             return;
         }
 
-        _file_path = std::move(path);
-        load_path();
+        load_path(std::move(path));
     }
 
     void on_render() {
@@ -557,8 +561,7 @@ public:
         auto urls = mime->urls();
         qDebug() << urls;
         if (!urls.isEmpty() && urls[0].isLocalFile()) {
-            _file_path = urls[0].toLocalFile();
-            load_path();
+            load_path(urls[0].toLocalFile());
         }
     }
 };
@@ -609,9 +612,17 @@ StateTransaction::~StateTransaction() noexcept(false) {
     auto e = _queued_updates;
     using E = StateUpdateFlag;
 
+    // Window title
+    if (e & E::FileReplaced) {
+        _win->reload_title();
+    }
+
+    // Chips list
     if (e & E::FileReplaced) {
         _win->_chips_model.end_reset_model();
     }
+
+    // Channels list
     if (e & E::ChipsEdited) {
         if (!(e & E::FileReplaced)) {
             _win->_backend.sort_channels();
