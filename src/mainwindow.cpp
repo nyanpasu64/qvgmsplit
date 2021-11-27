@@ -4,8 +4,10 @@
 #include "lib/release_assert.h"
 #include "lib/unwrap.h"
 
-// Layout
+// Widgets
 #include <QBoxLayout>
+#include <QGridLayout>
+#include <QLabel>
 #include <QMenuBar>
 #include <QToolBar>
 
@@ -454,14 +456,23 @@ public:
             tb->addAction(_render);
         }
 
-        {main__central_c_l(QWidget, QHBoxLayout);
-            {l__w(ChipsView);
+        {main__central_c_l(QWidget, QGridLayout);
+            l->setContentsMargins(-1, 8, -1, -1);
+
+            l->addWidget(new QLabel(tr("Chip Order")), 0, 0);
+            {auto w = new ChipsView;
+                l->addWidget(w, 1, 0);
                 _chips_view = w;
+
                 w->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
                 w->setModel(&_chips_model);
             }
-            {l__w(ChannelsView);
+
+            l->addWidget(new QLabel(tr("Channel Select")), 0, 1);
+            {auto w = new ChannelsView;
+                l->addWidget(w, 1, 1);
                 _channels_view = w;
+
                 w->setModel(&_channels_model);
             }
         }
