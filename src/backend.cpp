@@ -21,6 +21,7 @@
 #include <QFile>
 
 #include <atomic>
+#include <algorithm>  // std::stable_sort
 #include <cstdint>
 #include <iostream>
 
@@ -125,8 +126,8 @@ class Metadata {
 public:
     uint32_t _player_type;
 
-    std::vector<ChipMetadata> _chip_metadata;
-    std::vector<FlatChannelMetadata> _channel_metadata;
+    std::vector<ChipMetadata> _chips;
+    std::vector<FlatChannelMetadata> _channels;
 
 // impl
 public:
@@ -170,8 +171,8 @@ public:
         PlayerBase * engine = player->GetPlayer();
         engine->GetSongDeviceInfo(devices);
 
-        std::vector<ChipMetadata> chip_metadata;
-        std::vector<FlatChannelMetadata> channel_metadata = {
+        std::vector<ChipMetadata> chips;
+        std::vector<FlatChannelMetadata> channels = {
             FlatChannelMetadata {
                 .name = "Master Audio",
                 .chip_idx = (uint8_t) -1,
@@ -181,20 +182,20 @@ public:
             }
         };
 
-        chip_metadata.reserve(devices.size());
+        chips.reserve(devices.size());
 
         for (auto const& [chip_idx, device] : enumerate<uint8_t>(devices)) {
             constexpr UINT8 OPTS = 0x01;  // enable long names
             const char* chipName = SndEmu_GetDevName(device.type, OPTS, device.devCfg);
             std::cerr << chipName << "\n";
 
-            chip_metadata.push_back(ChipMetadata {
+            chips.push_back(ChipMetadata {
                 .name = chipName,
                 .chip_idx = chip_idx,
             });
 
             for (ChannelMetadata & meta : get_metadata(device)) {
-                channel_metadata.push_back(FlatChannelMetadata {
+                channels.push_back(FlatChannelMetadata {
                     .name = move(meta.name),
                     .chip_idx = chip_idx,
                     .subchip_idx = meta.subchip_idx,
@@ -206,8 +207,8 @@ public:
 
         return Ok(std::make_unique<Metadata>(Metadata {
             ._player_type = engine->GetPlayerType(),
-            ._chip_metadata = move(chip_metadata),
-            ._channel_metadata = move(channel_metadata),
+            ._chips = move(chips),
+            ._channels = move(channels),
         }));
     }
 };
@@ -249,7 +250,7 @@ QString Backend::load_path(QString path) {
         _metadata = move(result.value());
     }
 
-    for (auto const& metadata : _metadata->_channel_metadata) {
+    for (auto const& metadata : _metadata->_channels) {
         std::cerr
             << (int) metadata.chip_idx << " "
             << (int) metadata.subchip_idx << " "
@@ -263,15 +264,35 @@ QString Backend::load_path(QString path) {
 }
 
 std::vector<ChipMetadata> const& Backend::chips() const {
-    return _metadata->_chip_metadata;
+    return _metadata->_chips;
+}
+
+std::vector<ChipMetadata> & Backend::chips_mut() {
+    return _metadata->_chips;
+}
+
+void Backend::on_chips_changed() {
+    auto const& chips = _metadata->_chips;
+    std::vector<uint8_t> chip_idx_to_order(chips.size());
+    for (auto const& [i, chip] : enumerate<uint8_t>(chips)) {
+        chip_idx_to_order[chip.chip_idx] = i;
+    }
+
+    auto & channels = _metadata->_channels;
+
+    std::stable_sort(
+        channels.begin(), channels.end(),
+        [&chip_idx_to_order](FlatChannelMetadata const& a, FlatChannelMetadata const& b) {
+            return chip_idx_to_order[a.chip_idx] < chip_idx_to_order[b.chip_idx];
+        });
 }
 
 std::vector<FlatChannelMetadata> const& Backend::channels() const {
-    return _metadata->_channel_metadata;
+    return _metadata->_channels;
 }
 
 std::vector<FlatChannelMetadata> & Backend::channels_mut() {
-    return _metadata->_channel_metadata;
+    return _metadata->_channels;
 }
 
 // TODO put in header

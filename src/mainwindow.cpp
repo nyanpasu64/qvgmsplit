@@ -9,6 +9,7 @@
 #include <QToolBar>
 
 // Model-view
+#include <QAbstractListModel>
 #include <QAbstractTableModel>
 #include <QMimeData>
 #include <QListView>
@@ -29,6 +30,206 @@ static void setup_error_dialog(QErrorMessage & dialog) {
     dialog.resize(W, H);
     dialog.setModal(true);
 }
+
+class ChipsModel final : public QAbstractListModel {
+private:
+    Backend * _backend;
+
+public:
+    explicit ChipsModel(Backend * backend, QObject *parent = nullptr)
+        : _backend(backend)
+    {}
+
+    void begin_reset_model() {
+        beginResetModel();
+    }
+
+    void end_reset_model() {
+        endResetModel();
+    }
+
+private:
+    std::vector<ChipMetadata> const& get_chips() const {
+        return _backend->chips();
+    }
+
+    std::vector<ChipMetadata> & chips_mut() const {
+        return _backend->chips_mut();
+    }
+
+// impl QAbstractItemModel
+public:
+    int rowCount(QModelIndex const & parent) const override {
+        if (parent.isValid()) {
+            // Rows do not have children.
+            return 0;
+        } else {
+            // The root has items.
+            return int(get_chips().size());
+        }
+    }
+
+    QVariant data(QModelIndex const & index, int role) const override {
+        auto & chips = this->get_chips();
+
+        if (!index.isValid() || index.parent().isValid()) {
+            return {};
+        }
+
+        if (index.column() != 0) {
+            return {};
+        }
+
+        auto row = (size_t) index.row();
+        if (row >= chips.size()) {
+            return {};
+        }
+
+        switch (role) {
+        case Qt::DisplayRole:
+            return QString::fromStdString(chips[row].name);
+
+        default: return {};
+        }
+    }
+
+    Qt::ItemFlags flags(QModelIndex const& index) const override {
+        Qt::ItemFlags flags = QAbstractListModel::flags(index);
+        if (index.isValid()) {
+            flags |= Qt::ItemIsDragEnabled;
+        }
+
+        // Only allow dropping *between* items. (This also allows dropping in the
+        // background, which acts like dragging past the final row.)
+        if (!index.isValid()) {
+            flags |= Qt::ItemIsDropEnabled;
+        }
+
+        return flags;
+    }
+
+    Qt::DropActions supportedDragActions() const override {
+        return Qt::MoveAction;
+    }
+
+    Qt::DropActions supportedDropActions() const override {
+        return Qt::MoveAction;
+    }
+
+    /// Called by QAbstractItemView::dropEvent().
+    bool dropMimeData(
+        QMimeData const* data,
+        Qt::DropAction action,
+        int insert_row,
+        int insert_column,
+        QModelIndex const& replace_index)
+    override {
+        // Based off QAbstractListModel::dropMimeData().
+        if (!data || action != Qt::MoveAction)
+            return false;
+
+        QStringList types = mimeTypes();
+        if (types.isEmpty())
+            return false;
+        QString format = types.at(0);
+        if (!data->hasFormat(format))
+            return false;
+
+        QByteArray encoded = data->data(format);
+        QDataStream stream(&encoded, QIODevice::ReadOnly);
+
+        // Only allow dropping between rows.
+        if (!replace_index.isValid() && insert_row != -1) {
+            std::set<int> dragged_rows;
+            QMap<int, QVariant> _v;
+
+            while (!stream.atEnd()) {
+                // stream contains one element per cell, not per row.
+                int drag_row, _c;
+                stream >> drag_row >> _c >> _v;
+                dragged_rows.insert(drag_row);
+            }
+
+            auto & old_chips = chips_mut();
+            auto n = old_chips.size();
+
+            QModelIndexList from, to;
+            from.reserve((int) n);
+            to.reserve((int) n);
+
+            std::vector<ChipMetadata> new_chips;
+            new_chips.reserve(n);
+
+            auto skip_row =
+                [&dragged_rows, row = dragged_rows.begin()](int i) mutable -> bool
+            {
+                if (row != dragged_rows.end() && i == *row) {
+                    row++;
+                    return true;
+                }
+                return false;
+            };
+            auto push_idx = [this, &from, &to, &old_chips, &new_chips](
+                int old_i
+            ) {
+                auto new_i = (int) new_chips.size();
+                from.push_back(index(old_i, 0));
+                to.push_back(index(new_i, 0));
+                new_chips.push_back(std::move(old_chips[(size_t) old_i]));
+            };
+
+            for (int old_i = 0; (size_t) old_i < n; old_i++) {
+                if (old_i == insert_row) {
+                    for (int dragged_row : dragged_rows) {
+                        push_idx(dragged_row);
+                    }
+                }
+                if (!skip_row(old_i)) {
+                    push_idx(old_i);
+                }
+            }
+            if ((size_t) insert_row == n) {
+                for (int dragged_row : dragged_rows) {
+                    push_idx(dragged_row);
+                }
+            }
+
+            release_assert_equal(new_chips.size(), n);
+            changePersistentIndexList(from, to);
+            old_chips = std::move(new_chips);
+            _backend->on_chips_changed();
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /// removeRows() is called by QAbstractItemView::startDrag() when the user drags
+    /// two items to swap them. But we want to swap items, not overwrite one with
+    /// another. So ignore the call.
+    bool removeRows(int row, int count, const QModelIndex & parent) override {
+        return false;
+    }
+};
+
+class ChipsView final : public QListView {
+    // TODO
+public:
+    // ChannelsView()
+    explicit ChipsView(QWidget *parent = nullptr)
+        : QListView(parent)
+    {
+        setSelectionMode(QAbstractItemView::ExtendedSelection);
+
+        setDragEnabled(true);
+        setAcceptDrops(true);
+
+        setDragDropMode(QAbstractItemView::InternalMove);
+        setDragDropOverwriteMode(true);
+        setDropIndicatorShown(true);
+    }
+};
 
 class ChannelsModel final : public QAbstractTableModel {
 public:
@@ -170,123 +371,8 @@ public:
         Qt::ItemFlags flags = QAbstractTableModel::flags(index);
         if (index.isValid()) {
             flags |= Qt::ItemIsUserCheckable;
-//            if (index.row() != MASTER_AUDIO_ROW) {
-                flags |= Qt::ItemIsDragEnabled;
-//            }
         }
-
-        // Only allow dropping *between* items. (This also allows dropping in the
-        // background, which acts like dragging past the final row.)
-        if (!index.isValid()) {
-            flags |= Qt::ItemIsDropEnabled;
-        }
-
         return flags;
-    }
-
-    Qt::DropActions supportedDragActions() const override {
-        return Qt::MoveAction;
-    }
-
-    Qt::DropActions supportedDropActions() const override {
-        return Qt::MoveAction;
-    }
-
-    /// Called by QAbstractItemView::dropEvent().
-    bool dropMimeData(
-        QMimeData const* data,
-        Qt::DropAction action,
-        int insert_row,
-        int insert_column,
-        QModelIndex const& replace_index)
-    override {
-        // Based off QAbstractListModel::dropMimeData().
-        if (!data || action != Qt::MoveAction)
-            return false;
-
-        QStringList types = mimeTypes();
-        if (types.isEmpty())
-            return false;
-        QString format = types.at(0);
-        if (!data->hasFormat(format))
-            return false;
-
-        QByteArray encoded = data->data(format);
-        QDataStream stream(&encoded, QIODevice::ReadOnly);
-
-        // Only allow dropping between rows.
-        if (!replace_index.isValid() && insert_row != -1) {
-            std::set<int> dragged_rows;
-            QMap<int, QVariant> _v;
-
-            while (!stream.atEnd()) {
-                // stream contains one element per cell, not per row.
-                int drag_row, _c;
-                stream >> drag_row >> _c >> _v;
-                dragged_rows.insert(drag_row);
-            }
-
-            auto & old_channels = channels_mut();
-            auto n = old_channels.size();
-
-            QModelIndexList from, to;
-            from.reserve((int) n);
-            to.reserve((int) n);
-
-            std::vector<FlatChannelMetadata> new_channels;
-            new_channels.reserve(n);
-
-            auto skip_row =
-                [&dragged_rows, row = dragged_rows.begin()](int i) mutable -> bool
-            {
-                if (row != dragged_rows.end() && i == *row) {
-                    row++;
-                    return true;
-                }
-                return false;
-            };
-            auto push_idx = [this, &from, &to, &old_channels, &new_channels](
-                int old_i
-            ) {
-                auto new_i = (int) new_channels.size();
-                for (int col = 0; col < ColumnCount; col++) {
-                    from.push_back(index(old_i, col));
-                    to.push_back(index(new_i, col));
-                }
-                new_channels.push_back(std::move(old_channels[(size_t) old_i]));
-            };
-
-            for (int old_i = 0; (size_t) old_i < n; old_i++) {
-                if (old_i == insert_row) {
-                    for (int dragged_row : dragged_rows) {
-                        push_idx(dragged_row);
-                    }
-                }
-                if (!skip_row(old_i)) {
-                    push_idx(old_i);
-                }
-            }
-            if ((size_t) insert_row == n) {
-                for (int dragged_row : dragged_rows) {
-                    push_idx(dragged_row);
-                }
-            }
-
-            release_assert_equal(new_channels.size(), n);
-            changePersistentIndexList(from, to);
-            old_channels = std::move(new_channels);
-
-            return true;
-        }
-
-        return false;
-    }
-
-    /// removeRows() is called by QAbstractItemView::startDrag() when the user drags
-    /// two items to swap them. But we want to swap items, not overwrite one with
-    /// another. So ignore the call.
-    bool removeRows(int row, int count, const QModelIndex & parent) override {
-        return false;
     }
 };
 
@@ -298,13 +384,6 @@ public:
         : QListView(parent)
     {
         setSelectionMode(QAbstractItemView::ExtendedSelection);
-
-        setDragEnabled(true);
-        setAcceptDrops(true);
-
-        setDragDropMode(QAbstractItemView::InternalMove);
-        setDragDropOverwriteMode(true);
-        setDropIndicatorShown(true);
     }
 };
 
@@ -313,8 +392,11 @@ class MainWindowImpl : public MainWindow {
 
     QErrorMessage _error_dialog{this};
 
-    ChannelsModel _model;
-    ChannelsView * _view;
+    ChipsModel _chips_model;
+    ChannelsModel _channels_model;
+
+    ChipsView * _chips_view;
+    ChannelsView * _channels_view;
 
     QAction * _open;
     QAction * _render;
@@ -326,7 +408,8 @@ class MainWindowImpl : public MainWindow {
 public:
     MainWindowImpl(QWidget *parent, QString path)
         : MainWindow(parent)
-        , _model(&_backend)
+        , _chips_model(&_backend)
+        , _channels_model(&_backend)
         , _file_path(std::move(path))
     {
         setup_error_dialog(_error_dialog);
@@ -357,9 +440,13 @@ public:
         }
 
         {main__central_c_l(QWidget, QVBoxLayout);
+            {l__w(ChipsView);
+                _chips_view = w;
+                w->setModel(&_chips_model);
+            }
             {l__w(ChannelsView);
-                _view = w;
-                w->setModel(&_model);
+                _channels_view = w;
+                w->setModel(&_channels_model);
             }
         }
 
@@ -395,9 +482,9 @@ public:
         setWindowFilePath(_file_path);
         // setWindowModified(false);
 
-        _model.begin_reset_model();
+        _channels_model.begin_reset_model();
         auto err = _backend.load_path(_file_path);
-        _model.end_reset_model();
+        _channels_model.end_reset_model();
 
         if (!err.isEmpty()) {
             _error_dialog.close();

@@ -54,6 +54,8 @@ public:
     QString load_path(QString path);
 
     std::vector<ChipMetadata> const& chips() const;
+    std::vector<ChipMetadata> & chips_mut();
+    void on_chips_changed();
 
     /// Includes an extra entry for "Master Audio".
     std::vector<FlatChannelMetadata> const& channels() const;
