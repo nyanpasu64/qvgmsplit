@@ -231,6 +231,11 @@ public:
         setDragDropOverwriteMode(true);
         setDropIndicatorShown(true);
     }
+
+// impl QWidget
+    QSize sizeHint() const {
+        return QSize(128, 128);
+    }
 };
 
 class ChannelsModel final : public QAbstractTableModel {
@@ -425,6 +430,7 @@ public:
 
         // Setup GUI layout
 
+        resize(450, 600);
         auto main = this;
 
         {main__m();
@@ -448,9 +454,10 @@ public:
             tb->addAction(_render);
         }
 
-        {main__central_c_l(QWidget, QVBoxLayout);
+        {main__central_c_l(QWidget, QHBoxLayout);
             {l__w(ChipsView);
                 _chips_view = w;
+                w->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
                 w->setModel(&_chips_model);
             }
             {l__w(ChannelsView);
