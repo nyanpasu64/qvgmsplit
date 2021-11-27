@@ -19,6 +19,9 @@
 #include <stx/result.h>
 
 #include <QFile>
+#include <QFuture>
+#include <QRunnable>
+#include <QThreadPool>
 
 #include <atomic>
 #include <algorithm>  // std::stable_sort
@@ -43,84 +46,6 @@ struct DeleteDataLoader {
 };
 
 using BoxDataLoader = std::unique_ptr<DATA_LOADER, DeleteDataLoader>;
-
-class Job {
-public:
-    /// Implicitly shared, read-only.
-    QByteArray _file_data;
-
-    /// Points within _file_data, unique per job.
-    BoxDataLoader _loader;
-
-    std::unique_ptr<PlayerA> _player;
-    BoxArray<unsigned char, sizeof(int32_t) * 2 * BUFFER_LEN> _buffer = {};
-    std::atomic<bool> _cancel = false;
-
-    friend class JobHandle;
-
-// impl
-public:
-    /// Please don't call directly. This is only public for make_shared().
-    explicit Job(QByteArray file_data, BoxDataLoader loader, std::unique_ptr<PlayerA> player)
-        : _file_data(move(file_data))
-        , _loader(move(loader))
-        , _player(move(player))
-    {}
-
-    static Result<std::shared_ptr<Job>, QString> make(
-        QByteArray file_data, std::unique_ptr<PlayerA> player
-    ) {
-        UINT8 status;
-
-        auto loader = BoxDataLoader(MemoryLoader_Init(
-            (UINT8 const*) file_data.data(), (UINT32) file_data.size()
-        ));
-        if (loader == nullptr) {
-            return Err(Backend::tr("Failed to allocate MemoryLoader_Init"));
-        }
-
-        DataLoader_SetPreloadBytes(loader.get(), 0x100);
-        status = DataLoader_Load(loader.get());
-        if (status) {
-            // BoxDataLoader calls DataLoader_Deinit upon destruction.
-            // It seems DataLoader_Deinit calls DataLoader_Reset, which calls
-            // DataLoader_CancelLoading. So we don't need to explicitly call
-            // DataLoader_CancelLoading beforehand, and IDK why player.cpp does so.
-            return Err(Backend::tr("Failed to extract file, error 0x%1")
-                .arg(format_hex_2(status)));
-        }
-
-        status = player->LoadFile(loader.get());
-        if (status) {
-            return Err(Backend::tr("Failed to load file, error 0x%1")
-                .arg(format_hex_2(status)));
-        }
-
-        return Ok(std::make_shared<Job>(
-            move(file_data),
-            move(loader),
-            move(player)));
-    }
-};
-
-class JobHandle {
-    QString name;
-    int16_t chip_id;
-    int16_t chan_id;
-
-    /// Nullptr when not in a render.
-    std::shared_ptr<Job> _job;
-
-public:
-    ~JobHandle();
-    void cancel();
-};
-
-JobHandle::~JobHandle() = default;
-
-void JobHandle::cancel() {
-    _job->_cancel.store(true, std::memory_order_relaxed);
-}
 
 class Metadata {
 public:
@@ -210,6 +135,93 @@ public:
             ._chips = move(chips),
             ._channels = move(channels),
         }));
+    }
+};
+
+class Job : public QRunnable {
+public:
+    /// Implicitly shared, read-only.
+    QByteArray _file_data;
+
+    /// Points within _file_data, unique per job.
+    BoxDataLoader _loader;
+
+    std::unique_ptr<PlayerA> _player;
+    BoxArray<unsigned char, sizeof(int32_t) * 2 * BUFFER_LEN> _buffer = {};
+
+    // TODO initialize using QFutureInterface<void>
+    QFuture<void> _status;
+
+// impl
+public:
+    /// Please don't call directly. This is only public for make_unique().
+    explicit Job(QByteArray file_data, BoxDataLoader loader, std::unique_ptr<PlayerA> player)
+        : _file_data(move(file_data))
+        , _loader(move(loader))
+        , _player(move(player))
+    {}
+
+    static Result<std::unique_ptr<Job>, QString> make(
+        QByteArray file_data, uint32_t player_type
+    ) {
+        std::unique_ptr<PlayerBase> engine;
+
+        switch (player_type) {
+        case FCC_VGM:
+            engine = std::make_unique<VGMPlayer>();
+            break;
+        case FCC_S98:
+            engine = std::make_unique<S98Player>();
+            break;
+        case FCC_DRO:
+            engine = std::make_unique<DROPlayer>();
+            break;
+        case FCC_GYM:
+            engine = std::make_unique<GYMPlayer>();
+            break;
+        default:
+            return Err(Backend::tr("Failed to render, unrecognized file type 0x%1")
+                .arg(QString::number(player_type, 16).toUpper()));
+        }
+
+        UINT8 status;
+
+        auto loader = BoxDataLoader(MemoryLoader_Init(
+            (UINT8 const*) file_data.data(), (UINT32) file_data.size()
+        ));
+        if (loader == nullptr) {
+            return Err(Backend::tr("Failed to allocate MemoryLoader_Init"));
+        }
+
+        DataLoader_SetPreloadBytes(loader.get(), 0x100);
+        status = DataLoader_Load(loader.get());
+        if (status) {
+            return Err(Backend::tr("Failed to extract file, error 0x%1")
+                .arg(format_hex_2(status)));
+        }
+
+        auto player = std::make_unique<PlayerA>();
+
+        // Register the correct playback engine. This saves memory compared to
+        // creating 4 different engines for each channel in the file.
+        player->RegisterPlayerEngine(engine.release());
+
+        status = player->LoadFile(loader.get());
+        if (status) {
+            return Err(Backend::tr("Failed to load file, error 0x%1")
+                .arg(format_hex_2(status)));
+        }
+
+        return Ok(std::make_unique<Job>(
+            move(file_data),
+            move(loader),
+            move(player)));
+    }
+
+// impl QRunnable
+public:
+    void run() override {
+        throw "TODO";
     }
 };
 
