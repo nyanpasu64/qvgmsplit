@@ -236,7 +236,9 @@ public:
             std::vector<FlatChannelMetadata> new_metadata;
             new_metadata.reserve(n);
 
-            auto skip_row = [&dragged_rows, row = dragged_rows.begin()](int i) mutable -> bool {
+            auto skip_row =
+                [&dragged_rows, row = dragged_rows.begin()](int i) mutable -> bool
+            {
                 if (row != dragged_rows.end() && i == *row) {
                     row++;
                     return true;
@@ -262,6 +264,11 @@ public:
                 }
                 if (!skip_row(old_i)) {
                     push_idx(old_i);
+                }
+            }
+            if ((size_t) insert_row == n) {
+                for (int dragged_row : dragged_rows) {
+                    push_idx(dragged_row);
                 }
             }
 
