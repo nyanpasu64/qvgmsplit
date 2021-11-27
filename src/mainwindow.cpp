@@ -192,54 +192,6 @@ public:
         return Qt::MoveAction;
     }
 
-    struct Movement {
-        size_t begin;
-        size_t rotate_to_begin;
-        size_t end;
-    };
-
-    static Movement calc_move(size_t n, int i_source, int i_count, int i_dest) {
-        // Reject negative inputs.
-        if (i_source < 0 || i_count < 0 || i_dest < 0) {
-            return {};
-        }
-
-        // Reject empty drags.
-        if (i_count == 0) {
-            return {};
-        }
-
-        auto const source = (size_t) i_source;
-        auto const count = (size_t) i_count;
-        auto const dest = (size_t) i_dest;
-
-        // Reject out-of-bounds drags.
-        if (source > n || count > n || source + count > n || dest > n) {
-            return {};
-        }
-
-        // Reject dragging a region into itself ([source, source + count]).
-        if (!(dest < source || dest > source + count)) {
-            return {};
-        }
-
-        if (dest < source) {
-            // Leftwards drags.
-            return Movement {
-                dest,
-                source,
-                source + count,
-            };
-        } else {
-            // Rightward drags.
-            return Movement {
-                source,
-                source + count,
-                dest,
-            };
-        }
-    }
-
     /// Called by QAbstractItemView::dropEvent().
     bool dropMimeData(
         QMimeData const* data,
