@@ -11,7 +11,7 @@
 // Model-view
 #include <QAbstractTableModel>
 #include <QMimeData>
-#include <QTableView>
+#include <QListView>
 
 // Qt
 #include <QDebug>
@@ -290,14 +290,14 @@ public:
     }
 };
 
-class ChannelsView final : public QTableView {
+class ChannelsView final : public QListView {
     // TODO
 public:
     // ChannelsView()
     explicit ChannelsView(QWidget *parent = nullptr)
-        : QTableView(parent)
+        : QListView(parent)
     {
-        setSelectionBehavior(QAbstractItemView::SelectRows);
+        setSelectionMode(QAbstractItemView::ExtendedSelection);
 
         setDragEnabled(true);
         setAcceptDrops(true);
