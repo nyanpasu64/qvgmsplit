@@ -513,7 +513,7 @@ public:
     void reload_title() {
         _file_title = (!_file_path.isEmpty())
             ? QFileInfo(_file_path).fileName()
-            : tr("Untitled");
+            : QString();
 
         if (!_file_title.isEmpty()) {
             setWindowTitle(QStringLiteral("%1[*] - %2").arg(
