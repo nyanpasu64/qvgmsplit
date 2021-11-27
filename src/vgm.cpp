@@ -214,13 +214,8 @@ std::vector<ChannelMetadata> get_metadata(const PLR_DEV_INFO &device) {
         fmt::memory_buffer & out, std::string_view group_name, uint8_t chan_in_group
     ) {
         if (channel_names[global_chan].empty()) {
-            if (1 + chan_in_group < 10)
-                fmt::format_to(std::back_inserter(out),
-                    "{} {}", group_name, 1 + chan_in_group);
-            else
-                fmt::format_to(std::back_inserter(out),
-                    "{} {} ({})",
-                    group_name, 1 + chan_in_group, (char) ('A' + (chan_in_group - 9)));
+            fmt::format_to(std::back_inserter(out),
+                "{} {}", group_name, 1 + chan_in_group);
         } else {
             out.append(
                 channel_names[global_chan].begin(), channel_names[global_chan].end()
