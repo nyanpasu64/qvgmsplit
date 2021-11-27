@@ -10,6 +10,7 @@
 // Qt
 #include <QErrorMessage>
 #include <QFileDialog>
+#include <QFileInfo>
 
 #include <utility>  // std::move
 
@@ -30,12 +31,13 @@ class MainWindowImpl : public MainWindow {
     QAction * _render;
     QAction * _exit;
 
-    QString _path;
+    QString _file_title;
+    QString _file_path;
 
 public:
     MainWindowImpl(QWidget *parent, QString path)
         : MainWindow(parent)
-        , _path(std::move(path))
+        , _file_path(std::move(path))
     {
         setup_error_dialog(_error_dialog);
 
@@ -81,8 +83,22 @@ public:
     }
 
     void load_path() {
-        // TODO PlayerBase::GetDeviceOptions(UINT32 id, PLR_DEV_OPTS& devOpts) const = 0;
-        auto err = _backend.load_path(_path);
+        _file_title = (!_file_path.isEmpty())
+            ? QFileInfo(_file_path).fileName()
+            : tr("Untitled");
+
+        if (!_file_title.isEmpty()) {
+            setWindowTitle(QStringLiteral("%1[*] - %2").arg(
+                _file_title, "qvgmsplit"  // TODO add central/translated app name
+            ));
+        } else {
+            setWindowTitle(QStringLiteral("qvgmsplit"));
+        }
+
+        setWindowFilePath(_file_path);
+        // setWindowModified(false);
+
+        auto err = _backend.load_path(_file_path);
         if (!err.isEmpty()) {
             _error_dialog.close();
             _error_dialog.showMessage(err);
@@ -101,7 +117,7 @@ public:
             return;
         }
 
-        _path = std::move(path);
+        _file_path = std::move(path);
         load_path();
     }
 
