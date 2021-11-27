@@ -156,7 +156,15 @@ public:
         PlayerBase * engine = player->GetPlayer();
         engine->GetSongDeviceInfo(devices);
 
-        std::vector<FlatChannelMetadata> channel_metadata;
+        std::vector<FlatChannelMetadata> channel_metadata = {
+            FlatChannelMetadata {
+                .name = "Master Audio",
+                .chip_idx = (uint8_t) -1,
+                .subchip_idx = (uint8_t) -1,
+                .chan_idx = (uint8_t) -1,
+                .enabled = true,
+            }
+        };
 
         for (auto const& [chip_idx, device] : enumerate<uint8_t>(devices)) {
             constexpr UINT8 OPTS = 0x01;  // enable long names
@@ -181,7 +189,9 @@ public:
     }
 };
 
-Backend::Backend() {
+Backend::Backend()
+    : _metadata(std::make_unique<Metadata>(Metadata {}))
+{
 }
 
 Backend::~Backend() = default;
@@ -227,6 +237,14 @@ QString Backend::load_path(QString path) {
     // TODO load _channels
 
     return {};
+}
+
+std::vector<FlatChannelMetadata> const& Backend::metadata() const {
+    return _metadata->_channel_metadata;
+}
+
+std::vector<FlatChannelMetadata> & Backend::metadata_mut() {
+    return const_cast<std::vector<FlatChannelMetadata> &>(metadata());
 }
 
 // TODO put in header

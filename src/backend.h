@@ -62,6 +62,7 @@ public:
     /// If non-empty, holds error message.
     QString load_path(QString path);
 
+    std::vector<FlatChannelMetadata> const& metadata() const;
     std::vector<FlatChannelMetadata> & metadata_mut();
 };
 
