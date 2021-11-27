@@ -12,6 +12,11 @@
 class Metadata;
 class Job;
 
+struct ChipMetadata {
+    std::string name;
+    uint8_t chip_idx;
+};
+
 /// Uniquely identifies a channel in a .vgm file.
 /// The metadata used to mute a particular channel by setting
 /// PLR_MUTE_OPTS::chnMute[subchip_idx] |= 1u << chan_idx
@@ -35,25 +40,11 @@ struct FlatChannelMetadata {
     bool enabled = true;
 };
 
-class JobHandle {
-    QString name;
-    int16_t chip_id;
-    int16_t chan_id;
-
-    /// Nullptr when not in a render.
-    std::shared_ptr<Job> _job;
-
-public:
-    ~JobHandle();
-    void cancel();
-};
-
 class Backend {
     Q_DECLARE_TR_FUNCTIONS(Backend)
 
     QByteArray _file_data;
     std::unique_ptr<Metadata> _metadata;
-    std::vector<JobHandle> _channels;
 
 public:
     Backend();
@@ -62,7 +53,10 @@ public:
     /// If non-empty, holds error message.
     QString load_path(QString path);
 
-    std::vector<FlatChannelMetadata> const& metadata() const;
-    std::vector<FlatChannelMetadata> & metadata_mut();
+    std::vector<ChipMetadata> const& chips() const;
+
+    /// Includes an extra entry for "Master Audio".
+    std::vector<FlatChannelMetadata> const& channels() const;
+    std::vector<FlatChannelMetadata> & channels_mut();
 };
 

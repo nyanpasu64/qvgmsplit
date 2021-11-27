@@ -69,11 +69,11 @@ public:
 
 private:
     std::vector<FlatChannelMetadata> const& metadata() const {
-        return _backend->metadata();
+        return _backend->channels();
     }
 
     std::vector<FlatChannelMetadata> & metadata_mut() {
-        return _backend->metadata_mut();
+        return _backend->channels_mut();
     }
 
 // impl QAbstractItemModel

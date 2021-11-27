@@ -102,6 +102,19 @@ public:
     }
 };
 
+class JobHandle {
+    QString name;
+    int16_t chip_id;
+    int16_t chan_id;
+
+    /// Nullptr when not in a render.
+    std::shared_ptr<Job> _job;
+
+public:
+    ~JobHandle();
+    void cancel();
+};
+
 JobHandle::~JobHandle() = default;
 
 void JobHandle::cancel() {
@@ -112,6 +125,7 @@ class Metadata {
 public:
     uint32_t _player_type;
 
+    std::vector<ChipMetadata> _chip_metadata;
     std::vector<FlatChannelMetadata> _channel_metadata;
 
 // impl
@@ -156,6 +170,7 @@ public:
         PlayerBase * engine = player->GetPlayer();
         engine->GetSongDeviceInfo(devices);
 
+        std::vector<ChipMetadata> chip_metadata;
         std::vector<FlatChannelMetadata> channel_metadata = {
             FlatChannelMetadata {
                 .name = "Master Audio",
@@ -166,10 +181,17 @@ public:
             }
         };
 
+        chip_metadata.reserve(devices.size());
+
         for (auto const& [chip_idx, device] : enumerate<uint8_t>(devices)) {
             constexpr UINT8 OPTS = 0x01;  // enable long names
             const char* chipName = SndEmu_GetDevName(device.type, OPTS, device.devCfg);
             std::cerr << chipName << "\n";
+
+            chip_metadata.push_back(ChipMetadata {
+                .name = chipName,
+                .chip_idx = chip_idx,
+            });
 
             for (ChannelMetadata & meta : get_metadata(device)) {
                 channel_metadata.push_back(FlatChannelMetadata {
@@ -184,6 +206,7 @@ public:
 
         return Ok(std::make_unique<Metadata>(Metadata {
             ._player_type = engine->GetPlayerType(),
+            ._chip_metadata = move(chip_metadata),
             ._channel_metadata = move(channel_metadata),
         }));
     }
@@ -197,9 +220,7 @@ Backend::Backend()
 Backend::~Backend() = default;
 
 QString Backend::load_path(QString path) {
-    _file_data.clear();
-    _metadata.reset();
-    _channels.clear();
+    QByteArray file_data;
 
     {
         auto file = QFile(path);
@@ -208,21 +229,23 @@ QString Backend::load_path(QString path) {
         }
 
         qint64 size = file.size();
-        _file_data = file.readAll();
-        if (_file_data.size() != size) {
+        file_data = file.readAll();
+        if (file_data.size() != size) {
             return tr("Failed to read file data, expected %1 bytes, read %2 bytes, error %3")
                 .arg(size)
-                .arg(_file_data.size())
+                .arg(file_data.size())
                 .arg(file.errorString());
         }
         file.close();
     }
 
     {
-        auto result = Metadata::make(_file_data);
+        auto result = Metadata::make(file_data);
         if (result.is_err()) {
             return move(result.err_value());
         }
+
+        _file_data = move(file_data);
         _metadata = move(result.value());
     }
 
@@ -239,12 +262,16 @@ QString Backend::load_path(QString path) {
     return {};
 }
 
-std::vector<FlatChannelMetadata> const& Backend::metadata() const {
+std::vector<ChipMetadata> const& Backend::chips() const {
+    return _metadata->_chip_metadata;
+}
+
+std::vector<FlatChannelMetadata> const& Backend::channels() const {
     return _metadata->_channel_metadata;
 }
 
-std::vector<FlatChannelMetadata> & Backend::metadata_mut() {
-    return const_cast<std::vector<FlatChannelMetadata> &>(metadata());
+std::vector<FlatChannelMetadata> & Backend::channels_mut() {
+    return _metadata->_channel_metadata;
 }
 
 // TODO put in header
