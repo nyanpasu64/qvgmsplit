@@ -256,7 +256,11 @@ class ChannelsView final : public QTableView {
     // TODO
 public:
     // ChannelsView()
-    using QTableView::QTableView;
+    explicit ChannelsView(QWidget *parent = nullptr)
+        : QTableView(parent)
+    {
+        setSelectionBehavior(QAbstractItemView::SelectRows);
+    }
 };
 
 class MainWindowImpl : public MainWindow {
