@@ -167,9 +167,9 @@ public:
         Qt::ItemFlags flags = QAbstractTableModel::flags(index);
         if (index.isValid()) {
             flags |= Qt::ItemIsUserCheckable;
-            if (index.row() != MASTER_AUDIO_ROW) {
+//            if (index.row() != MASTER_AUDIO_ROW) {
                 flags |= Qt::ItemIsDragEnabled;
-            }
+//            }
         }
 
         // Only allow dropping *between* items. (This also allows dropping in the
@@ -260,6 +260,13 @@ public:
         : QTableView(parent)
     {
         setSelectionBehavior(QAbstractItemView::SelectRows);
+
+        setDragEnabled(true);
+        setAcceptDrops(true);
+
+        setDragDropMode(QAbstractItemView::InternalMove);
+        setDragDropOverwriteMode(true);
+        setDropIndicatorShown(true);
     }
 };
 
