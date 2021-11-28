@@ -310,12 +310,22 @@ public:
 // impl QRunnable
 public:
     void run() override {
+        // Based off https://invent.kde.org/qt/qt/qtbase/-/blob/kde/5.15/src/concurrent/qtconcurrentrunbase.h#L95-121
         if (_status.isCanceled()) {
-            _status.reportCanceled();
+            _status.reportFinished();
             return;
         }
 
-        throw "TODO";
+        try {
+            // TODO open wav file
+            throw "TODO";
+        } catch (QException & e) {
+            _status.reportException(e);
+        } catch (...) {
+            _status.reportException(QUnhandledException());
+        }
+
+        _status.reportFinished();
     }
 };
 
