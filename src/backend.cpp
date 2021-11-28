@@ -2,6 +2,7 @@
 #include "lib/box_array.h"
 #include "lib/enumerate.h"
 #include "lib/format.h"
+#include "lib/release_assert.h"
 #include "vgm.h"
 
 // File loading
@@ -20,6 +21,7 @@
 
 #include <QFile>
 #include <QFuture>
+#include <QFutureInterface>
 #include <QRunnable>
 #include <QThreadPool>
 
@@ -27,11 +29,13 @@
 #include <algorithm>  // std::stable_sort
 #include <cstdint>
 #include <iostream>
+#include <optional>
 
 using std::move;
 using stx::Result, stx::Ok, stx::Err;
 using format::format_hex_2;
 
+static constexpr uint8_t BIT_DEPTH = 16;
 static constexpr size_t BUFFER_LEN = 2048;
 
 struct DeleteDataLoader {
@@ -138,8 +142,36 @@ public:
     }
 };
 
+struct SoloSettings {
+    /// Depends on the .vgm file.
+    uint8_t chip_idx;
+
+    /// Usually 0. YM2608's PSG channels have it set to 1.
+    uint8_t subchip_idx;
+
+    /// ChannelMetadata with the same subchip_idx are grouped together
+    /// and have chan_idx monotonically increasing from 0.
+    uint8_t chan_idx;
+};
+
+struct RenderSettings {
+    std::optional<SoloSettings> solo;
+
+    uint32_t sample_rate = 44100;
+
+    /// Q15.16 signed floating point value. 0x1'0000 is 100% volume.
+    int32_t volume = 0x1'0000;
+
+    uint32_t loop_count;
+
+    /// In seconds.
+    float fade_duration = 4.0;
+
+    // TODO duration override?
+};
+
 class Job : public QRunnable {
-public:
+private:
     /// Implicitly shared, read-only.
     QByteArray _file_data;
 
@@ -149,36 +181,30 @@ public:
     std::unique_ptr<PlayerA> _player;
     BoxArray<unsigned char, sizeof(int32_t) * 2 * BUFFER_LEN> _buffer = {};
 
-    // TODO initialize using QFutureInterface<void>
-    QFuture<void> _status;
+    // TODO add return type for success vs. cancel
+    // TODO use something other than QFuture with richer progress info?
+    QFutureInterface<void> _status;
 
 // impl
 public:
-    /// Please don't call directly. This is only public for make_unique().
+    // Internal. Do not call from outside make().
     explicit Job(QByteArray file_data, BoxDataLoader loader, std::unique_ptr<PlayerA> player)
         : _file_data(move(file_data))
         , _loader(move(loader))
         , _player(move(player))
     {}
 
+    // TODO add settings
     static Result<std::unique_ptr<Job>, QString> make(
-        QByteArray file_data, uint32_t player_type
+        QByteArray file_data, uint32_t player_type, RenderSettings const& opt
     ) {
         std::unique_ptr<PlayerBase> engine;
 
         switch (player_type) {
-        case FCC_VGM:
-            engine = std::make_unique<VGMPlayer>();
-            break;
-        case FCC_S98:
-            engine = std::make_unique<S98Player>();
-            break;
-        case FCC_DRO:
-            engine = std::make_unique<DROPlayer>();
-            break;
-        case FCC_GYM:
-            engine = std::make_unique<GYMPlayer>();
-            break;
+        case FCC_VGM: engine = std::make_unique<VGMPlayer>(); break;
+        case FCC_S98: engine = std::make_unique<S98Player>(); break;
+        case FCC_DRO: engine = std::make_unique<DROPlayer>(); break;
+        case FCC_GYM: engine = std::make_unique<GYMPlayer>(); break;
         default:
             return Err(Backend::tr("Failed to render, unrecognized file type 0x%1")
                 .arg(QString::number(player_type, 16).toUpper()));
@@ -206,21 +232,62 @@ public:
         // creating 4 different engines for each channel in the file.
         player->RegisterPlayerEngine(engine.release());
 
+        /* setup the player's output parameters and allocate internal buffers */
+        if (player->SetOutputSettings(opt.sample_rate, 2, BIT_DEPTH, BUFFER_LEN)) {
+            return Err(Backend::tr("Unsupported channel count/bit depth (this should never happen)"));
+        }
+
+        /* set playback parameters */
+        {
+            PlayerA::Config pCfg = player->GetConfiguration();
+            pCfg.masterVol = opt.volume;
+            pCfg.loopCount = opt.loop_count;
+            pCfg.fadeSmpls = (uint32_t) ((float) opt.sample_rate * opt.fade_duration);
+            pCfg.endSilenceSmpls = 0;
+            pCfg.pbSpeed = 1.0;
+            player->SetConfiguration(pCfg);
+        }
+
         status = player->LoadFile(loader.get());
         if (status) {
             return Err(Backend::tr("Failed to load file, error 0x%1")
                 .arg(format_hex_2(status)));
         }
 
-        return Ok(std::make_unique<Job>(
+        PlayerBase * p_engine = player->GetPlayer();
+        if (player_type == FCC_VGM) {
+            VGMPlayer* vgmplay = dynamic_cast<VGMPlayer *>(p_engine);
+            release_assert(vgmplay);
+            player->SetLoopCount(vgmplay->GetModifiedLoopCount(opt.loop_count));
+        }
+
+        if (opt.solo) {
+            // TODO p_engine->SetDeviceMuting(...);
+        }
+
+        auto max_time = (int) player->GetTotalTime(/*includeLoops=*/ 1);
+
+        auto out = std::make_unique<Job>(
             move(file_data),
             move(loader),
-            move(player)));
+            move(player));
+        out->_status.setProgressRange(0, max_time);
+        return Ok(std::move(out));
+    }
+
+    QFuture<void> status() {
+        return _status.future();
     }
 
 // impl QRunnable
 public:
     void run() override {
+        if (_status.isCanceled()) {
+            _status.reportCanceled();
+            return;
+        }
+        _player->Start();
+
         throw "TODO";
     }
 };
@@ -307,6 +374,10 @@ std::vector<FlatChannelMetadata> & Backend::channels_mut() {
     return _metadata->_channels;
 }
 
+void Backend::start_render() {
+
+}
+
 // TODO put in header
 /// Translate a string in a global context, outside of a class.
 static QString gtr(
@@ -320,59 +391,6 @@ static QString gtr(
 
 struct Unit {};
 #define OK  Ok(Unit{})
-
-static Result<Unit, QString> _load_song(
-    PlayerA & player, QString path, uint32_t sample_rate, uint8_t bit_depth
-) {
-    /* setup the player's output parameters and allocate internal buffers */
-    if (player.SetOutputSettings(sample_rate, 2, bit_depth, BUFFER_LEN)) {
-        return Err(gtr("backend", "Unsupported sample rate / bps"));
-    }
-
-    INT32 masterVol = 0x10000;	// fixed point 16.16
-    UINT32 maxLoops = 2;
-    UINT32 sampleRate = 44100;
-
-    PlayerA::Config pCfg = player.GetConfiguration();
-    pCfg.masterVol = masterVol;
-    pCfg.loopCount = maxLoops;
-    pCfg.fadeSmpls = sampleRate * 4;	// fade over 4 seconds
-    pCfg.endSilenceSmpls = sampleRate / 2;	// 0.5 seconds of silence at the end
-    pCfg.pbSpeed = 1.0;
-    player.SetConfiguration(pCfg);
-
-    UINT8 status;
-
-    exit(1);
-    DATA_LOADER *dLoad;
-
-    /* attempt to load 256 bytes, bail if not possible */
-    DataLoader_SetPreloadBytes(dLoad,0x100);
-    status = DataLoader_Load(dLoad);
-    if (status) {
-        DataLoader_CancelLoading(dLoad);
-        DataLoader_Deinit(dLoad);
-        return Err(gtr("backend", "Error 0x%1 reading file")
-            .arg(format_hex_2(status)));
-    }
-
-    /* associate the fileloader to the player -
-     * automatically reads the rest of the file */
-    status = player.LoadFile(dLoad);
-    if (status) {
-        DataLoader_CancelLoading(dLoad);
-        DataLoader_Deinit(dLoad);
-        return Err(gtr("backend", "Error 0x%1 parsing file")
-            .arg(format_hex_2(status)));
-    }
-
-    auto engine = player.GetPlayer();
-    if (VGMPlayer* vgmplay = dynamic_cast<VGMPlayer*>(engine)) {
-        player.SetLoopCount(vgmplay->GetModifiedLoopCount(maxLoops));
-    }
-
-    return OK;
-}
 
 static void _change_mute(PlayerBase * player) {
     UINT8 retVal;

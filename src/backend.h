@@ -48,6 +48,7 @@ class Backend {
 
     QByteArray _file_data;
     std::unique_ptr<Metadata> _metadata;
+    std::vector<Job> _jobs;
 
     friend class StateTransaction;
 public:
@@ -64,5 +65,8 @@ public:
     /// Includes an extra entry for "Master Audio".
     std::vector<FlatChannelMetadata> const& channels() const;
     std::vector<FlatChannelMetadata> & channels_mut();
+
+    // TODO bool rendering() const?
+    void start_render();
 };
 
