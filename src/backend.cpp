@@ -51,12 +51,11 @@ struct DeleteDataLoader {
 
 using BoxDataLoader = std::unique_ptr<DATA_LOADER, DeleteDataLoader>;
 
-class Metadata {
-public:
-    uint32_t _player_type;
+struct Metadata {
+    uint32_t player_type;
 
-    std::vector<ChipMetadata> _chips;
-    std::vector<FlatChannelMetadata> _channels;
+    std::vector<ChipMetadata> chips;
+    std::vector<FlatChannelMetadata> flat_channels;
 
 // impl
 public:
@@ -101,7 +100,7 @@ public:
         engine->GetSongDeviceInfo(devices);
 
         std::vector<ChipMetadata> chips;
-        std::vector<FlatChannelMetadata> channels = {
+        std::vector<FlatChannelMetadata> flat_channels = {
             FlatChannelMetadata {
                 .name = "Master Audio",
                 .chip_idx = (uint8_t) -1,
@@ -123,21 +122,21 @@ public:
                 .chip_idx = chip_idx,
             });
 
-            for (ChannelMetadata & meta : get_metadata(device)) {
-                channels.push_back(FlatChannelMetadata {
-                    .name = move(meta.name),
+            for (ChannelMetadata & channel : get_chip_metadata(device)) {
+                flat_channels.push_back(FlatChannelMetadata {
+                    .name = move(channel.name),
                     .chip_idx = chip_idx,
-                    .subchip_idx = meta.subchip_idx,
-                    .chan_idx = meta.chan_idx,
+                    .subchip_idx = channel.subchip_idx,
+                    .chan_idx = channel.chan_idx,
                     .enabled = true,
                 });
             }
         }
 
         return Ok(std::make_unique<Metadata>(Metadata {
-            ._player_type = engine->GetPlayerType(),
-            ._chips = move(chips),
-            ._channels = move(channels),
+            .player_type = engine->GetPlayerType(),
+            .chips = move(chips),
+            .flat_channels = move(flat_channels),
         }));
     }
 };
@@ -196,18 +195,18 @@ public:
 
     // TODO add settings
     static Result<std::unique_ptr<Job>, QString> make(
-        QByteArray file_data, uint32_t player_type, RenderSettings const& opt
+        QByteArray file_data, Metadata const& metadata, RenderSettings const& opt
     ) {
         std::unique_ptr<PlayerBase> engine;
 
-        switch (player_type) {
+        switch (metadata.player_type) {
         case FCC_VGM: engine = std::make_unique<VGMPlayer>(); break;
         case FCC_S98: engine = std::make_unique<S98Player>(); break;
         case FCC_DRO: engine = std::make_unique<DROPlayer>(); break;
         case FCC_GYM: engine = std::make_unique<GYMPlayer>(); break;
         default:
             return Err(Backend::tr("Failed to render, unrecognized file type 0x%1")
-                .arg(QString::number(player_type, 16).toUpper()));
+                .arg(QString::number(metadata.player_type, 16).toUpper()));
         }
 
         UINT8 status;
@@ -255,14 +254,36 @@ public:
         }
 
         PlayerBase * p_engine = player->GetPlayer();
-        if (player_type == FCC_VGM) {
+        if (metadata.player_type == FCC_VGM) {
             VGMPlayer* vgmplay = dynamic_cast<VGMPlayer *>(p_engine);
             release_assert(vgmplay);
             player->SetLoopCount(vgmplay->GetModifiedLoopCount(opt.loop_count));
         }
 
         if (opt.solo) {
-            // TODO p_engine->SetDeviceMuting(...);
+            SoloSettings const& solo = *opt.solo;
+
+            auto nchip = metadata.chips.size();
+            for (size_t chip_idx = 0; chip_idx < nchip; chip_idx++) {
+                PLR_MUTE_OPTS mute{};
+
+                if (chip_idx != solo.chip_idx) {
+                    mute.disable = 0xff;
+                    // Probably unnecessary, but do it anyway.
+                    mute.chnMute[0] = mute.chnMute[1] = ~0u;
+
+                } else for (size_t subchip_idx = 0; subchip_idx < 2; subchip_idx++) {
+                    if (subchip_idx != solo.subchip_idx) {
+                        mute.disable |= 1 << subchip_idx;
+                        // Probably unnecessary, but do it anyway.
+                        mute.chnMute[subchip_idx] = ~0u;
+
+                    } else {
+                        mute.chnMute[subchip_idx] = (~0u) ^ (1 << solo.chan_idx);
+                    }
+                }
+                p_engine->SetDeviceMuting((uint32_t) chip_idx, mute);
+            }
         }
 
         auto max_time = (int) player->GetTotalTime(/*includeLoops=*/ 1);
@@ -329,7 +350,7 @@ QString Backend::load_path(QString path) {
         _metadata = move(result.value());
     }
 
-    for (auto const& metadata : _metadata->_channels) {
+    for (auto const& metadata : _metadata->flat_channels) {
         std::cerr
             << (int) metadata.chip_idx << " "
             << (int) metadata.subchip_idx << " "
@@ -343,21 +364,21 @@ QString Backend::load_path(QString path) {
 }
 
 std::vector<ChipMetadata> const& Backend::chips() const {
-    return _metadata->_chips;
+    return _metadata->chips;
 }
 
 std::vector<ChipMetadata> & Backend::chips_mut() {
-    return _metadata->_chips;
+    return _metadata->chips;
 }
 
 void Backend::sort_channels() {
-    auto const& chips = _metadata->_chips;
+    auto const& chips = _metadata->chips;
     std::vector<uint8_t> chip_idx_to_order(chips.size());
     for (auto const& [i, chip] : enumerate<uint8_t>(chips)) {
         chip_idx_to_order[chip.chip_idx] = i;
     }
 
-    auto & channels = _metadata->_channels;
+    auto & channels = _metadata->flat_channels;
 
     std::stable_sort(
         channels.begin(), channels.end(),
@@ -367,11 +388,11 @@ void Backend::sort_channels() {
 }
 
 std::vector<FlatChannelMetadata> const& Backend::channels() const {
-    return _metadata->_channels;
+    return _metadata->flat_channels;
 }
 
 std::vector<FlatChannelMetadata> & Backend::channels_mut() {
-    return _metadata->_channels;
+    return _metadata->flat_channels;
 }
 
 void Backend::start_render() {

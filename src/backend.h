@@ -5,12 +5,18 @@
 #include <QCoreApplication>
 #include <QString>
 
+#include <cstdint>
 #include <memory>
 #include <vector>
-#include <cstdint>
 
-class Metadata;
+struct Metadata;
 class Job;
+
+// It would be nice to have a relational view of data, so ChipMetadata and
+// FlatChannelMetadata would be separate tables, and nchan would be either
+// stored denormalized, or computed with a count over FlatChannelMetadata.
+// But I'm not sure how to best integrate it into C++. And QAbstractItemModel isn't
+// "best integrated", but worst. Maybe an ECS would do better?
 
 struct ChipMetadata {
     std::string name;

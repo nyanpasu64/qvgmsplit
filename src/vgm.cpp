@@ -12,7 +12,7 @@
 #include <iterator>  // std::back_inserter
 #include <string_view>
 
-std::vector<ChannelMetadata> get_metadata(const PLR_DEV_INFO &device) {
+std::vector<ChannelMetadata> get_chip_metadata(const PLR_DEV_INFO &device) {
     // This is a rewrite of https://github.com/ValleyBell/in_vgm-libvgm/blob/e8a1fe7981ef/dlg_cfg.cpp#L842.
     // I verified the results look acceptable for YM2608 (sub-chip),
     // Sega Genesis (PSG+YM2612, no sub-chip), and OPL3 (18 channels) .vgm files.
