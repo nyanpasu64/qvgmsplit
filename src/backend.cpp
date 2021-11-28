@@ -37,6 +37,7 @@ using format::format_hex_2;
 
 static constexpr uint8_t BIT_DEPTH = 16;
 static constexpr size_t BUFFER_LEN = 2048;
+static constexpr size_t CHANNEL_COUNT = 2;
 
 struct DeleteDataLoader {
     void operator()(DATA_LOADER * obj) {
@@ -178,7 +179,7 @@ private:
     BoxDataLoader _loader;
 
     std::unique_ptr<PlayerA> _player;
-    BoxArray<unsigned char, sizeof(int32_t) * 2 * BUFFER_LEN> _buffer = {};
+    BoxArray<int16_t, CHANNEL_COUNT * BUFFER_LEN> _buffer = {};
 
     // TODO add return type for success vs. cancel
     // TODO use something other than QFuture with richer progress info?
@@ -232,7 +233,9 @@ public:
         player->RegisterPlayerEngine(engine.release());
 
         /* setup the player's output parameters and allocate internal buffers */
-        if (player->SetOutputSettings(opt.sample_rate, 2, BIT_DEPTH, BUFFER_LEN)) {
+        if (player->SetOutputSettings(
+            opt.sample_rate, CHANNEL_COUNT, BIT_DEPTH, BUFFER_LEN
+        )) {
             return Err(Backend::tr("Unsupported channel count/bit depth (this should never happen)"));
         }
 
@@ -286,6 +289,10 @@ public:
             }
         }
 
+        // It's not necessary to call Start() before GetTotalTime()
+        // (only before converting to/from samples), but call Start() now so
+        // if we add calls to Tick2Sample(), they won't fail.
+        player->Start();
         auto max_time = (int) player->GetTotalTime(/*includeLoops=*/ 1);
 
         auto out = std::make_unique<Job>(
@@ -307,7 +314,6 @@ public:
             _status.reportCanceled();
             return;
         }
-        _player->Start();
 
         throw "TODO";
     }
