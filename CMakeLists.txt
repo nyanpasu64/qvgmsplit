@@ -11,6 +11,8 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+option(DOWNLOAD_ZLIB "Download zlib instead of searching for a globally installed library" OFF)
+
 if (WIN32)
     add_compile_definitions(UNICODE _UNICODE)
     # rtaudio_c.cpp uses strncpy and the like. I don't actually use that file lol
@@ -72,6 +74,17 @@ find_package(${Qt} COMPONENTS Widgets REQUIRED)
 add_subdirectory("3rdparty/fmt")
 add_subdirectory("3rdparty/GSL")
 
+if (${DOWNLOAD_ZLIB})
+    include(cmake/CPM.cmake)
+    CPMAddPackage(
+        NAME zlib
+        GITHUB_REPOSITORY madler/zlib
+        GIT_TAG cacf7f1d4e3d44d871b605da3b647f07d718623f
+    )
+    add_library(ZLIB::ZLIB ALIAS zlibstatic)
+endif ()
+
+
 set(BUILD_TESTS FALSE CACHE BOOL "")
 set(BUILD_PLAYER FALSE CACHE BOOL "")
 set(BUILD_VGM2WAV FALSE CACHE BOOL "")
@@ -120,7 +133,7 @@ endif()
 target_compile_options(qvgmsplit PRIVATE "${options}")
 target_link_libraries(qvgmsplit PRIVATE
     ${Qt}::Widgets
-    vgm-audio vgm-player vgm-utils
+    vgm-audio vgm-player vgm-utils ZLIB::ZLIB
     fmt GSL stx
 )
 
