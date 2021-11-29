@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "gui_app.h"
 #include "lib/defer.h"
 #include "lib/layout_macros.h"
 #include "lib/release_assert.h"
@@ -517,10 +518,10 @@ public:
 
         if (!_file_title.isEmpty()) {
             setWindowTitle(QStringLiteral("%1[*] - %2").arg(
-                _file_title, "qvgmsplit"  // TODO add central/translated app name
+                _file_title, GuiApp::app_name()
             ));
         } else {
-            setWindowTitle(QStringLiteral("qvgmsplit"));
+            setWindowTitle(GuiApp::app_name());
         }
 
         setWindowFilePath(_file_path);

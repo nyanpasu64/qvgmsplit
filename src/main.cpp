@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "gui_app.h"
 
 #include <QApplication>
 #include <QCommandLineParser>
@@ -100,7 +101,7 @@ struct Arguments {
 
 
 int main(int argc, char *argv[]) {
-    QApplication a(argc, argv);
+    GuiApp a(argc, argv);
     QCoreApplication::setApplicationName("qvgmsplit");
 
     // Parse command-line arguments.

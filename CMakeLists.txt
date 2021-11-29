@@ -98,6 +98,8 @@ set(PROJECT_SOURCES
 
     src/backend.cpp
     src/backend.h
+    src/gui_app.cpp
+    src/gui_app.h
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
