@@ -217,9 +217,8 @@ std::vector<ChannelMetadata> get_chip_metadata(const PLR_DEV_INFO &device) {
             fmt::format_to(std::back_inserter(out),
                 "{} {}", group_name, 1 + chan_in_group);
         } else {
-            out.append(
-                channel_names[global_chan].begin(), channel_names[global_chan].end()
-            );
+            std::string_view name = channel_names[global_chan];
+            out.append(name.data(), name.data() + name.size());
         }
         global_chan++;
     };
