@@ -27,7 +27,7 @@ static bool has(QString const& s) {
     return !s.isEmpty();
 }
 
-QString help_text(QCommandLineParser & parser) {
+static QString help_text(QCommandLineParser & parser) {
     return parser.helpText();
 }
 
