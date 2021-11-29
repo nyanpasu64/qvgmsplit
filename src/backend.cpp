@@ -112,6 +112,7 @@ public:
         };
 
         chips.reserve(devices.size());
+        bool show_chip_name = devices.size() > 1;
 
         for (auto const& [chip_idx, device] : enumerate<uint8_t>(devices)) {
             constexpr UINT8 OPTS = 0x01;  // enable long names
@@ -123,7 +124,10 @@ public:
                 .chip_idx = chip_idx,
             });
 
-            for (ChannelMetadata & channel : get_chip_metadata(device)) {
+            for (
+                ChannelMetadata & channel :
+                get_chip_metadata(device, show_chip_name)
+            ) {
                 flat_channels.push_back(FlatChannelMetadata {
                     .name = move(channel.name),
                     .chip_idx = chip_idx,

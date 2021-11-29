@@ -22,4 +22,6 @@ struct ChannelMetadata {
     std::string name;
 };
 
-std::vector<ChannelMetadata> get_chip_metadata(PLR_DEV_INFO const& device);
+std::vector<ChannelMetadata> get_chip_metadata(
+    PLR_DEV_INFO const& device, bool show_chip_name
+);
