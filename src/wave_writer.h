@@ -4,44 +4,68 @@
 #ifndef WAVE_WRITER_H
 #define WAVE_WRITER_H
 
+#include "lib/copy_move.h"
+
+#include <stx/result.h>
+
 #include <cstdio>
+#include <cstdint>
+#include <memory>
 
 #ifndef wave_writer_INTERNAL
 #define wave_writer_INTERNAL private
 #endif
 
-/* ERRORS: If error occurs (out of memory, disk full, etc.), functions print
-cause then exit program. */
+/// Zero for success, positive for errno, -1 for application-specific errors.
+using Errno = int;
+using stx::Result;
 
 /* C++ interface */
 class Wave_Writer {
 wave_writer_INTERNAL:
     FILE* _file;
-    int   _sample_count;
-    int   _sample_rate;
-    int   _chan_count;
+    uint32_t   _sample_count;
+    uint32_t   _sample_rate;
+    uint8_t   _chan_count;
 
 public:
-    typedef short sample_t;
+    using Amplitude = int16_t;
 
+wave_writer_INTERNAL:
+    Wave_Writer(uint32_t sample_rate, FILE * file);
+    DISABLE_COPY_MOVE(Wave_Writer)
+
+public:
     /// Creates and opens sound file of given sample rate and filename.
-    Wave_Writer( int new_sample_rate, const char filename [] = "out.wav" );
+    /// If opening file or writing header fails, returns Err.
+    /// Supports 8-bit paths natively on Linux.
+    static Result<std::unique_ptr<Wave_Writer>, Errno> try_make(
+        uint32_t sample_rate, char const* filename
+    );
+#ifdef _WIN32
+    /// Creates and opens sound file of given sample rate and filename.
+    /// If opening file or writing header fails, returns Err.
+    /// Supports Unicode paths natively on Windows.
+    static Result<std::unique_ptr<Wave_Writer>, Errno> try_make_w(
+        uint32_t sample_rate, wchar_t const* filename
+    );
+#endif
 
     /// Enables stereo output.
     void enable_stereo();
 
     /// Appends count samples to file.
-    void write( const sample_t in [], int n );
+    [[nodiscard]] Errno write(Amplitude const* in, uint32_t n);
 
     /// Number of samples written so far.
-    int sample_count() const;
+    uint32_t sample_count() const;
 
-    /// Finishes writing sound file and closes it.
-    /// May be called multiple times. Must be idempotent.
-    void close();
+    /// Finishes writing sound file and closes it. May be called multiple times,
+    /// and does nothing on subsequent calls (this function is idempotent).
+    [[nodiscard]] Errno close();
 
     ~Wave_Writer() {
-        close();
+        (void) close();
     }
 };
 #endif
