@@ -4,9 +4,6 @@
 #include "wave_writer.h"
 #include "lib/defer.h"
 
-#include <errno.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include <utility>
 
 /* Copyright (C) 2003-2008 Shay Green. This module is free software; you
@@ -25,12 +22,12 @@ static constexpr uint32_t BYTES_PER_SAMPLE = sizeof(Wave_Writer::Amplitude);
 using stx::Ok, stx::Err;
 using std::move;
 
-[[nodiscard]] static Errno write_data(Wave_Writer & self, void const* in, size_t size)
+[[nodiscard]] static QString write_data(Wave_Writer & self, void const* in, size_t size)
 {
-    if (fwrite(in, size, 1, self._file) != size) {
-        return -1;
+    if (self._file.write((char const*) in, (int64_t) size) == -1) {
+        return self._file.errorString();
     }
-    return 0;
+    return {};
 }
 
 static void set_le32( unsigned char p [4], unsigned n )
@@ -41,7 +38,7 @@ static void set_le32( unsigned char p [4], unsigned n )
     p [3] = (unsigned char) (n >> 24);
 }
 
-[[nodiscard]] static Errno write_header(Wave_Writer & self)
+[[nodiscard]] static QString write_header(Wave_Writer & self)
 {
     uint32_t data_size  = BYTES_PER_SAMPLE * self._sample_count;
     uint8_t frame_size = BYTES_PER_SAMPLE * self._chan_count;
@@ -73,60 +70,45 @@ static void set_le32( unsigned char p [4], unsigned n )
     return write_data(self, h, sizeof h);
 }
 
-Wave_Writer::Wave_Writer(uint32_t sample_rate, FILE *file)
-    : _file(file)
+Wave_Writer::Wave_Writer(uint32_t sample_rate, QString const& path)
+    : _file(path)
     , _sample_count(0)
     , _sample_rate(sample_rate)
     , _chan_count(1)
 {}
 
-static Result<std::unique_ptr<Wave_Writer>, Errno> make(
-    uint32_t sample_rate, FILE * file
+Result<std::unique_ptr<Wave_Writer>, QString> Wave_Writer::make(
+    uint32_t sample_rate, QString const& path
 ) {
-    if (!file) {
-        return Err(+errno);
+    auto out = std::make_unique<Wave_Writer>(sample_rate, path);
+    if (!out->_file.open(QFile::WriteOnly)) {
+        return Err(out->_file.errorString());
     }
-
-    auto out = std::make_unique<Wave_Writer>(sample_rate, file);
     // Write a header with dummy information. The real length/channel fields
     // will be written when close() calls write_header() again.
-    if (auto err = write_header(*out)) {
-        return Err(+err);
+    if (auto err = write_header(*out); !err.isEmpty()) {
+        return Err(move(err));
     }
     return Ok(move(out));
 }
 
-Result<std::unique_ptr<Wave_Writer>, Errno> Wave_Writer::try_make(
-    uint32_t sample_rate, const char *filename
-) {
-    return make(sample_rate, fopen(filename, "wb"));
-}
-
-#ifdef _WIN32
-Result<std::unique_ptr<Wave_Writer>, Errno> Wave_Writer::try_make_w(
-    uint32_t sample_rate, const wchar_t *filename
-) {
-    return make(sample_rate, _wfopen(filename, L"wb"));
-}
-#endif
-
-Errno Wave_Writer::close()
+QString Wave_Writer::close()
 {
     // May be called multiple times. Must be idempotent.
-    if ( _file )
-    {
-        rewind( _file );
-        if (auto err = write_header(*this)) {
-            fclose( _file );
-            _file = NULL;
+    if (_file.isOpen()) {
+        _file.seek(0);
+        if (auto err = write_header(*this); !err.isEmpty()) {
+            _file.close();
             return err;
         }
 
-        auto err = fclose( _file );
-        _file = NULL;
-        return err;
+        if (!_file.flush()) {
+            return _file.errorString();
+        }
+        _file.close();
+        return {};
     }
-    return 0;
+    return {};
 }
 
 void Wave_Writer::enable_stereo()
@@ -134,7 +116,7 @@ void Wave_Writer::enable_stereo()
     _chan_count = 2;
 }
 
-[[nodiscard]] Errno Wave_Writer::write(Amplitude const* in, uint32_t remain)
+[[nodiscard]] QString Wave_Writer::write(Amplitude const* in, uint32_t remain)
 {
     _sample_count += remain;
 
@@ -160,13 +142,14 @@ void Wave_Writer::enable_stereo()
             }
             while ( in != end );
 
-            if (auto err = write_data(*this, buf, (size_t) (out - buf))) {
+            if (
+                auto err = write_data(*this, buf, (size_t) (out - buf)); !err.isEmpty()
+            ) {
                 return err;
             }
         }
     }
-
-    return 0;
+    return {};
 }
 
 uint32_t Wave_Writer::sample_count() const
