@@ -20,10 +20,12 @@
 
 #include <stx/result.h>
 
+#include <QDir>
 #include <QFile>
-#include <QFuture>
+#include <QFileInfo>
 #include <QFutureInterface>
 #include <QRunnable>
+#include <QThread>
 #include <QThreadPool>
 
 #include <atomic>
@@ -430,7 +432,12 @@ Backend::Backend()
 
 Backend::~Backend() = default;
 
-QString Backend::load_path(QString path) {
+QString Backend::load_path(QString const& path) {
+    if (is_rendering()) {
+        return tr("Cannot load path while rendering");
+    }
+    _render_jobs.clear();
+
     QByteArray file_data;
 
     {
@@ -505,6 +512,92 @@ std::vector<FlatChannelMetadata> & Backend::channels_mut() {
     return _metadata->flat_channels;
 }
 
-void Backend::start_render() {
+std::vector<RenderJobHandle> const& Backend::render_jobs() const {
+    return _render_jobs;
+}
 
+bool Backend::is_rendering() const {
+    for (RenderJobHandle const& job : _render_jobs) {
+        if (!job.isFinished()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void Backend::cancel_render() {
+    for (RenderJobHandle & job : _render_jobs) {
+        job.cancel();
+    }
+}
+
+// TODO either move type to header, move to unique_ptr in header, or replace Backend
+// with a virtual base class.
+static const RenderSettings RENDER_SETTINGS {
+    .solo = {},
+    .loop_count = 2,
+};
+
+std::vector<QString> Backend::start_render(QString const& path) {
+    if (is_rendering()) {
+        return {tr("Cannot start render while render is active")};
+    }
+
+    _render_jobs.clear();
+
+    // The number of cores (or hyper-threads).
+    int cores = QThread::idealThreadCount();
+
+    // TODO pick an optimal thread count, based on div(nchan, cores) and treating 0 and
+    // positive separately.
+    _render_thread_pool.setMaxThreadCount(cores);
+
+    std::vector<QString> errors;
+    std::vector<std::unique_ptr<RenderJob>> queued_jobs;
+
+    for (auto const& [chan_idx, channel] : enumerate<size_t>(_metadata->flat_channels)) {
+        if (!channel.enabled) {
+            continue;
+        }
+
+        std::optional<SoloSettings> solo;
+        auto const channel_name = channel.numbered_name(chan_idx);
+
+        QString channel_path;
+
+        // For per-channel jobs, solo the channel.
+        if (channel.chip_idx != (uint8_t) -1) {
+            solo = SoloSettings {
+                .chip_idx = channel.chip_idx,
+                .subchip_idx = channel.subchip_idx,
+                .chan_idx = channel.chan_idx,
+            };
+            channel_path = QFileInfo(path)
+                .dir()
+                .absoluteFilePath(QStringLiteral("%1.wav").arg(channel_name));
+        } else {
+            channel_path = path;
+        }
+
+        auto settings = RENDER_SETTINGS;
+        settings.solo = solo;
+        auto job =
+            RenderJob::make(move(channel_path), _file_data, *_metadata, settings);
+        if (job.is_err()) {
+            errors.push_back(tr("Error rendering %1: %2")
+                .arg(channel_name, job.err_value()));
+        } else {
+            queued_jobs.push_back(move(job.value()));
+        }
+    }
+
+    if (!errors.empty()) {
+        return errors;
+    }
+
+    for (auto & job : queued_jobs) {
+        _render_jobs.push_back(job->future());
+        _render_thread_pool.start(job.release());
+    }
+    return errors;
 }

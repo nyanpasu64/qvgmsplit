@@ -20,11 +20,13 @@
 
 // Qt
 #include <QDebug>
+#include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QErrorMessage>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QTimer>
 
 #include <algorithm>  // std::rotate
 #include <set>
@@ -386,6 +388,7 @@ public:
 class MainWindowImpl final : public MainWindow {
 public:
     QErrorMessage _error_dialog{this};
+    QTimer _render_status_timer;
 
     ChipsModel _chips_model;
     ChannelsModel _channels_model;
@@ -474,6 +477,11 @@ public:
         _exit->setShortcuts(QKeySequence::Quit);
         connect(_exit, &QAction::triggered, this, &MainWindowImpl::close);
 
+        _render_status_timer.setInterval(200);
+        connect(
+            &_render_status_timer, &QTimer::timeout,
+            this, &MainWindowImpl::update_render_status);
+
         // TODO load file
         if (!path.isEmpty()) {
             load_path(std::move(path));
@@ -514,7 +522,7 @@ public:
 
     void on_open() {
         // TODO save recent dirs, using SQLite or QSettings
-        auto path = QFileDialog::getOpenFileName(
+        QString path = QFileDialog::getOpenFileName(
             this,
             tr("Open File"),
             QString(),
@@ -524,11 +532,42 @@ public:
             return;
         }
 
-        load_path(std::move(path));
+        load_path(path);
     }
 
     void on_render() {
+        auto orig_path = QFileInfo(_file_path);
+        auto wav_name = orig_path.baseName() + QStringLiteral(".wav");
 
+        QString render_path = QFileDialog::getSaveFileName(
+            this,
+            tr("Render To"),
+            orig_path.dir().absoluteFilePath(wav_name),
+            tr("WAV files (*.wav);;All files (*)"));
+
+        if (render_path.isEmpty()) {
+            return;
+        }
+
+        // TODO show errors in _error_dialog
+        _backend.start_render(render_path);
+
+        _render_status_timer.start();
+        update_render_status();
+    }
+
+    bool update_render_status() {
+        // TODO disable open/render/etc.
+        bool const is_rendering = _backend.is_rendering();
+        _open->setDisabled(is_rendering);
+        _render->setDisabled(is_rendering);
+
+        // TODO show per-channel status and errors somewhere?
+
+        if (!is_rendering) {
+            _render_status_timer.stop();
+        }
+        return is_rendering;
     }
 
 // impl QWidget
