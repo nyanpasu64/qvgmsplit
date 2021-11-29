@@ -10,7 +10,6 @@
 #include <vector>
 
 struct Metadata;
-class Job;
 
 // It would be nice to have a relational view of data, so ChipMetadata and
 // FlatChannelMetadata would be separate tables, and nchan would be either
@@ -54,7 +53,6 @@ class Backend {
 
     QByteArray _file_data;
     std::unique_ptr<Metadata> _metadata;
-    std::vector<Job> _jobs;
 
     friend class StateTransaction;
 public:
