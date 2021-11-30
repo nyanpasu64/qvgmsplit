@@ -34,6 +34,8 @@
 #include <iostream>
 #include <optional>
 
+//#define BACKEND_DEBUG
+
 using std::move;
 using stx::Result, stx::Ok, stx::Err;
 using format::format_hex_2;
@@ -121,7 +123,9 @@ public:
         for (auto const& [chip_idx, device] : enumerate<uint8_t>(devices)) {
             constexpr UINT8 OPTS = 0x01;  // enable long names
             const char* chipName = SndEmu_GetDevName(device.type, OPTS, device.devCfg);
+#ifdef BACKEND_DEBUG
             std::cerr << chipName << "\n";
+#endif
 
             chips.push_back(ChipMetadata {
                 .name = chipName,
@@ -466,6 +470,7 @@ QString Backend::load_path(QString const& path) {
         _metadata = move(result.value());
     }
 
+#ifdef BACKEND_DEBUG
     for (auto const& metadata : _metadata->flat_channels) {
         std::cerr
             << (int) metadata.chip_idx << " "
@@ -473,6 +478,7 @@ QString Backend::load_path(QString const& path) {
             << (int) metadata.chan_idx << " "
             << metadata.name << "\n";
     }
+#endif
 
     // TODO load _channels
 

@@ -573,7 +573,6 @@ public:
     void dragEnterEvent(QDragEnterEvent *event) override {
         QMimeData const* mime = event->mimeData();
         auto urls = mime->urls();
-        qDebug() << urls;
         if (!urls.isEmpty() && urls[0].isLocalFile()) {
             event->acceptProposedAction();
         }
@@ -582,7 +581,6 @@ public:
     void dropEvent(QDropEvent *event) override {
         QMimeData const* mime = event->mimeData();
         auto urls = mime->urls();
-        qDebug() << urls;
         if (!urls.isEmpty() && urls[0].isLocalFile()) {
             load_path(urls[0].toLocalFile());
         }
