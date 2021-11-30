@@ -256,21 +256,11 @@ public:
 
 private:
     Backend * _backend;
-    bool _number_channels = true;
 
 public:
     explicit ChannelsModel(Backend * backend, QObject *parent = nullptr)
         : _backend(backend)
     {}
-
-    void set_number_channels(bool number_channels) {
-        if (number_channels != _number_channels) {
-            _number_channels = number_channels;
-            emit dataChanged(
-                index(CHANNEL_0_ROW, NameColumn),
-                index((int) get_channels().size() - 1, NameColumn));
-        }
-    }
 
     void begin_reset_model() {
         beginResetModel();
@@ -332,13 +322,7 @@ public:
         case NameColumn:
             switch (role) {
             case Qt::DisplayRole:
-                if (_number_channels && row >= CHANNEL_0_ROW) {
-                    return QStringLiteral("%1 - %2")
-                        .arg(row)
-                        .arg(QString::fromStdString(channels[row].name));
-                } else {
-                    return QString::fromStdString(channels[row].name);
-                }
+                return channels[row].numbered_name(row);
 
             case Qt::CheckStateRole:
                 return channels[row].enabled ? Qt::Checked : Qt::Unchecked;
