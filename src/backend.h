@@ -43,6 +43,8 @@ struct FlatChannelMetadata {
 
     /// Whether to output the channel or not.
     bool enabled = true;
+
+    QString numbered_name(size_t row) const;
 };
 
 class Backend {

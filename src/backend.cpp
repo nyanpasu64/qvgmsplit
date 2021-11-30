@@ -148,6 +148,18 @@ public:
     }
 };
 
+QString FlatChannelMetadata::numbered_name(size_t row) const {
+    // TODO maybe pass in a "show numbers" setting?
+
+    auto channel_name = QString::fromStdString(name);
+    if (row > 0) {
+        channel_name = QStringLiteral("%1 - %2")
+            .arg(row)
+            .arg(channel_name);
+    }
+    return channel_name;
+}
+
 struct SoloSettings {
     /// Depends on the .vgm file.
     uint8_t chip_idx;
