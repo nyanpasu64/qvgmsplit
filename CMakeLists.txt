@@ -57,7 +57,7 @@ if (
     AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
     AND CMAKE_BUILD_TYPE STREQUAL "Release"
 )
-    add_link_options(-Wl,--strip-all -Wl,--insert-timestamp -Wl,--gc-sections -Wl,--discard-all)
+    add_link_options(-Wl,--strip-all -Wl,--insert-timestamp -Wl,--gc-sections)
 endif()
 
 
