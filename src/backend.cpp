@@ -159,8 +159,10 @@ QString FlatChannelMetadata::numbered_name(size_t row) const {
 
     auto channel_name = QString::fromStdString(name);
     if (row > 0) {
+        // Pad the channel number with leading zeros, so the exported .wav files are
+        // ordered correctly when played in Winamp or dragged into Audacity.
         channel_name = QStringLiteral("%1 - %2")
-            .arg(row)
+            .arg(row, 2, 10, QChar('0'))
             .arg(channel_name);
     }
     return channel_name;
