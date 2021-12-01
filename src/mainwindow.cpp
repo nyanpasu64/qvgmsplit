@@ -447,7 +447,7 @@ public:
         }
 
         {main__central_c_l(QWidget, QGridLayout);
-            l->setContentsMargins(-1, 8, -1, -1);
+            l->setContentsMargins(-1, 6, -1, -1);
 
             l->addWidget(new QLabel(tr("Chip Order")), 0, 0);
             {auto w = new ChipsView;
