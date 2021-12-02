@@ -225,7 +225,6 @@ public:
 };
 
 class ChipsView final : public QListView {
-    // TODO
 public:
     // ChannelsView()
     explicit ChipsView(QWidget *parent = nullptr)
@@ -377,7 +376,6 @@ public:
 };
 
 class ChannelsView final : public QListView {
-    // TODO
 public:
     // ChannelsView()
     explicit ChannelsView(QWidget *parent = nullptr)
@@ -509,7 +507,6 @@ public:
             &_render_status_timer, &QTimer::timeout,
             this, &MainWindowImpl::update_render_status);
 
-        // TODO load file
         if (!path.isEmpty()) {
             // Calls update_render_status().
             load_path(std::move(path));
