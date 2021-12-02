@@ -26,6 +26,8 @@
 #include <QErrorMessage>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QTextCursor>
+#include <QTextDocument>
 #include <QTimer>
 
 #include <algorithm>  // std::rotate
@@ -385,6 +387,30 @@ public:
     }
 };
 
+static QString errors_to_html(QString const& prefix, std::vector<QString> const& errors) {
+    QTextDocument document;
+    auto cursor = QTextCursor(&document);
+    cursor.beginEditBlock();
+    cursor.insertText(prefix);
+
+    // https://stackoverflow.com/a/51864380
+    QTextList* bullets = nullptr;
+    QTextBlockFormat non_list_format = cursor.blockFormat();
+    for (auto const& e : errors) {
+        if (!bullets) {
+            // create list with 1 item
+            bullets = cursor.insertList(QTextListFormat::ListDisc);
+        } else {
+            // append item to list
+            cursor.insertBlock();
+        }
+
+        cursor.insertText(e);
+    }
+
+    return document.toHtml();
+}
+
 class MainWindowImpl final : public MainWindow {
 public:
     QErrorMessage _error_dialog{this};
@@ -550,8 +576,25 @@ public:
             return;
         }
 
-        // TODO show errors in _error_dialog
-        _backend.start_render(render_path);
+        auto err = _backend.start_render(render_path);
+        if (!err.empty()) {
+            // In practice this never happens; the only errors that are reported
+            // immediately are "already rendering" (the Render action is disabled
+            // during rendering), OOM errors (unlikely), and .vgm parsing errors (you
+            // can't even open a file without parsing a VGM).
+            //
+            // Entering an invalid file path raises an error *after* each job is
+            // created, when it's actually scheduled; these errors show up in
+            // Backend::render_jobs()[].results().
+
+            _error_dialog.showMessage(
+                errors_to_html(tr("Errors starting render:"), err)
+            );
+
+            // _backend.is_rendering() *should* be false, but just in case it's true,
+            // start the timer and call update_render_status() anyway (instead of
+            // returning).
+        }
 
         _render_status_timer.start();
         update_render_status();
