@@ -511,7 +511,10 @@ public:
 
         // TODO load file
         if (!path.isEmpty()) {
+            // Calls update_render_status().
             load_path(std::move(path));
+        } else {
+            update_render_status();
         }
     }
 
@@ -603,7 +606,7 @@ public:
     bool update_render_status() {
         bool const is_rendering = _backend.is_rendering();
         _open->setDisabled(is_rendering);
-        _render->setDisabled(is_rendering);
+        _render->setDisabled(is_rendering || _backend.channels().empty());
 
         // TODO show per-channel status and errors somewhere?
 
@@ -680,6 +683,7 @@ StateTransaction::~StateTransaction() noexcept(false) {
     // Window title
     if (e & E::FileReplaced) {
         _win->reload_title();
+        _win->update_render_status();
     }
 
     // Chips list
