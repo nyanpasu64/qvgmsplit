@@ -527,7 +527,7 @@ public:
             this,
             tr("Open File"),
             QString(),
-            tr("VGM files (*.vgm *.vgz);;All files (*)"));
+            tr("All supported files (*.vgm *.vgz *.dro *.s98);;All files (*)"));
 
         if (path.isEmpty()) {
             return;
