@@ -3,14 +3,15 @@
 #include <player/playera.hpp>
 
 #include <QCoreApplication>
+#include <QFuture>
 #include <QString>
+#include <QThreadPool>
 
 #include <cstdint>
 #include <memory>
 #include <vector>
 
 struct Metadata;
-class Job;
 
 // It would be nice to have a relational view of data, so ChipMetadata and
 // FlatChannelMetadata would be separate tables, and nchan would be either
@@ -22,6 +23,8 @@ struct ChipMetadata {
     std::string name;
     uint8_t chip_idx;
 };
+
+using RenderJobHandle = QFuture<QString>;
 
 /// Uniquely identifies a channel in a .vgm file.
 /// The metadata used to mute a particular channel by setting
@@ -44,6 +47,8 @@ struct FlatChannelMetadata {
 
     /// Whether to output the channel or not.
     bool enabled = true;
+
+    QString numbered_name(size_t row) const;
 };
 
 class Backend {
@@ -54,7 +59,8 @@ class Backend {
 
     QByteArray _file_data;
     std::unique_ptr<Metadata> _metadata;
-    std::vector<Job> _jobs;
+    QThreadPool _render_thread_pool;
+    std::vector<RenderJobHandle> _render_jobs;
 
     friend class StateTransaction;
 public:
@@ -62,7 +68,7 @@ public:
     ~Backend();
 
     /// If non-empty, holds error message.
-    QString load_path(QString path);
+    QString load_path(QString const& path);
 
     std::vector<ChipMetadata> const& chips() const;
     std::vector<ChipMetadata> & chips_mut();
@@ -72,7 +78,18 @@ public:
     std::vector<FlatChannelMetadata> const& channels() const;
     std::vector<FlatChannelMetadata> & channels_mut();
 
-    // TODO bool rendering() const?
-    void start_render();
+    /// Returns a list of all render jobs. Length is either empty or matches the number
+    /// of enabled channels in channels() when the last render was started.
+    std::vector<RenderJobHandle> const& render_jobs() const;
+
+    /// Returns whether there are unfinished render jobs.
+    bool is_rendering() const;
+
+    /// Cancel all active render jobs.
+    void cancel_render();
+
+    /// Returns empty vector if succeeded, a message if a render is in progress,
+    /// or messages if starting the render fails.
+    [[nodiscard]] std::vector<QString> start_render(QString const& path);
 };
 

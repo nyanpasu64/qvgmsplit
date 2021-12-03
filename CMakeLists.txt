@@ -105,6 +105,8 @@ set(PROJECT_SOURCES
     src/mainwindow.h
     src/vgm.cpp
     src/vgm.h
+    src/wave_writer.cpp
+    src/wave_writer.h
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)

@@ -4,6 +4,7 @@
 #include "lib/format.h"
 #include "lib/release_assert.h"
 #include "vgm.h"
+#include "wave_writer.h"
 
 // File loading
 #include <utils/DataLoader.h>
@@ -19,10 +20,12 @@
 
 #include <stx/result.h>
 
+#include <QDir>
 #include <QFile>
-#include <QFuture>
+#include <QFileInfo>
 #include <QFutureInterface>
 #include <QRunnable>
+#include <QThread>
 #include <QThreadPool>
 
 #include <atomic>
@@ -31,13 +34,16 @@
 #include <iostream>
 #include <optional>
 
+//#define BACKEND_DEBUG
+
 using std::move;
 using stx::Result, stx::Ok, stx::Err;
 using format::format_hex_2;
 
+using Amplitude = int16_t;
 static constexpr uint8_t BIT_DEPTH = 16;
-static constexpr size_t BUFFER_LEN = 2048;
-static constexpr size_t CHANNEL_COUNT = 2;
+static constexpr uint32_t BUFFER_LEN = 2048;
+static constexpr uint32_t CHANNEL_COUNT = 2;
 
 struct DeleteDataLoader {
     void operator()(DATA_LOADER * obj) {
@@ -117,7 +123,9 @@ public:
         for (auto const& [chip_idx, device] : enumerate<uint8_t>(devices)) {
             constexpr UINT8 OPTS = 0x01;  // enable long names
             const char* chipName = SndEmu_GetDevName(device.type, OPTS, device.devCfg);
+#ifdef BACKEND_DEBUG
             std::cerr << chipName << "\n";
+#endif
 
             chips.push_back(ChipMetadata {
                 .name = chipName,
@@ -145,6 +153,20 @@ public:
         }));
     }
 };
+
+QString FlatChannelMetadata::numbered_name(size_t row) const {
+    // TODO maybe pass in a "show numbers" setting?
+
+    auto channel_name = QString::fromStdString(name);
+    if (row > 0) {
+        // Pad the channel number with leading zeros, so the exported .wav files are
+        // ordered correctly when played in Winamp or dragged into Audacity.
+        channel_name = QStringLiteral("%1 - %2")
+            .arg(row, 2, 10, QChar('0'))
+            .arg(channel_name);
+    }
+    return channel_name;
+}
 
 struct SoloSettings {
     /// Depends on the .vgm file.
@@ -174,8 +196,9 @@ struct RenderSettings {
     // TODO duration override?
 };
 
-class Job : public QRunnable {
-private:
+struct RenderJobState {
+    QString _out_path;
+
     /// Implicitly shared, read-only.
     QByteArray _file_data;
 
@@ -183,25 +206,26 @@ private:
     BoxDataLoader _loader;
 
     std::unique_ptr<PlayerA> _player;
-    BoxArray<int16_t, CHANNEL_COUNT * BUFFER_LEN> _buffer = {};
+    BoxArray<Amplitude, BUFFER_LEN * CHANNEL_COUNT> _buffer = {};
 
-    // TODO add return type for success vs. cancel
     // TODO use something other than QFuture with richer progress info?
-    QFutureInterface<void> _status;
+    QFutureInterface<QString> _status{};
+};
 
+class RenderJob : public QRunnable, private RenderJobState {
 // impl
-public:
-    // Internal. Do not call from outside make().
-    explicit Job(QByteArray file_data, BoxDataLoader loader, std::unique_ptr<PlayerA> player)
-        : _file_data(move(file_data))
-        , _loader(move(loader))
-        , _player(move(player))
+public:  // Public for std::make_unique.
+    RenderJob(RenderJobState state)
+        : RenderJobState(move(state))
     {}
 
-    // TODO add settings
-    static Result<std::unique_ptr<Job>, QString> make(
-        QByteArray file_data, Metadata const& metadata, RenderSettings const& opt
-    ) {
+public:
+    static Result<std::unique_ptr<RenderJob>, QString> make(
+        QString out_path,
+        QByteArray file_data,
+        Metadata const& metadata,
+        RenderSettings const& opt)
+    {
         std::unique_ptr<PlayerBase> engine;
 
         switch (metadata.player_type) {
@@ -240,7 +264,9 @@ public:
         if (player->SetOutputSettings(
             opt.sample_rate, CHANNEL_COUNT, BIT_DEPTH, BUFFER_LEN
         )) {
-            return Err(Backend::tr("Unsupported channel count/bit depth (this should never happen)"));
+            return Err(Backend::tr(
+                "Unsupported channel count/bit depth (this should never happen)"
+            ));
         }
 
         /* set playback parameters */
@@ -267,6 +293,14 @@ public:
             player->SetLoopCount(vgmplay->GetModifiedLoopCount(opt.loop_count));
         }
 
+        // Calling PlayerBase::SetDeviceMuting() with channel indices fails if you
+        // haven't called PlayerA::Start(). (Calling PlayerBase::SetDeviceMuting() with
+        // PLR_DEV_ID(chip, instance) works before calling PlayerA::Start().)
+        //
+        // It's not necessary to call Start() before GetTotalTime() (but it is
+        // necessary to call it before converting to/from samples).
+        player->Start();
+
         if (opt.solo) {
             SoloSettings const& solo = *opt.solo;
 
@@ -281,7 +315,7 @@ public:
 
                 } else for (size_t subchip_idx = 0; subchip_idx < 2; subchip_idx++) {
                     if (subchip_idx != solo.subchip_idx) {
-                        mute.disable |= 1 << subchip_idx;
+                        mute.disable |= (uint8_t) (1 << subchip_idx);
                         // Probably unnecessary, but do it anyway.
                         mute.chnMute[subchip_idx] = ~0u;
 
@@ -289,26 +323,90 @@ public:
                         mute.chnMute[subchip_idx] = (~0u) ^ (1 << solo.chan_idx);
                     }
                 }
-                p_engine->SetDeviceMuting((uint32_t) chip_idx, mute);
+                status = p_engine->SetDeviceMuting((uint32_t) chip_idx, mute);
+                assert(status == 0);
             }
         }
 
-        // It's not necessary to call Start() before GetTotalTime()
-        // (only before converting to/from samples), but call Start() now so
-        // if we add calls to Tick2Sample(), they won't fail.
-        player->Start();
-        auto max_time = (int) player->GetTotalTime(/*includeLoops=*/ 1);
+        auto max_time_s =
+            (int) (player->GetTotalTime(/*includeLoops=*/ 1) + opt.fade_duration);
 
-        auto out = std::make_unique<Job>(
-            move(file_data),
-            move(loader),
-            move(player));
-        out->_status.setProgressRange(0, max_time);
+        auto out = std::make_unique<RenderJob>(RenderJobState {
+            ._out_path = move(out_path),
+            ._file_data = move(file_data),
+            ._loader = move(loader),
+            ._player = move(player),
+        });
+        // Progress range is [0..time in seconds].
+        out->_status.setProgressRange(0, max_time_s);
         return Ok(std::move(out));
     }
 
-    QFuture<void> status() {
+    QFuture<QString> future() {
         return _status.future();
+    }
+
+private:
+    void callback() {
+        uint32_t sample_rate = _player->GetSampleRate();
+
+        auto maybe_writer = Wave_Writer::make(sample_rate, _out_path);
+        if (maybe_writer.is_err()) {
+            _status.reportResult(
+                Backend::tr("Error opening file: %1").arg(maybe_writer.err_value())
+            );
+            return;
+        }
+        auto writer = std::move(maybe_writer.value());
+        writer->enable_stereo();
+
+        PlayerBase * engine = _player->GetPlayer();
+
+        /* figure out how many total frames we're going to render */
+        uint32_t render_nsamp = engine->Tick2Sample(engine->GetTotalPlayTicks(
+            _player->GetLoopCount()
+        ));
+
+        /* we only want to fade if there's a looping section. Assumption is
+         * if the VGM doesn't specify a loop, it's a song with an actual ending */
+        if(engine->GetLoopTicks()) {
+            render_nsamp += _player->GetConfiguration().fadeSmpls;
+        }
+
+        uint32_t curr_samp = 0;
+        while (curr_samp < render_nsamp) {
+            if (_status.isCanceled()) {
+                _status.reportResult(Backend::tr("Cancelled by user"));
+                return;
+            }
+
+            std::fill(_buffer.begin(), _buffer.end(), 0);
+
+            /* default to BUFFER_LEN PCM frames unless we have under BUFFER_LEN remaining */
+            auto curr_frames = std::min(render_nsamp - curr_samp, BUFFER_LEN);
+
+            // Render audio. Pass buffer size in bytes.
+            _player->Render(
+                curr_frames * CHANNEL_COUNT * (BIT_DEPTH / 8), _buffer.data()
+            );
+
+            // Write audio. Pass buffer size in samples.
+            if (
+                auto err = writer->write(_buffer.data(), curr_frames * CHANNEL_COUNT);
+                !err.isEmpty()
+            ) {
+                _status.reportResult(Backend::tr("Error writing data: %1").arg(err));
+                return;
+            }
+            curr_samp += curr_frames;
+            // Set current time in seconds.
+            _status.setProgressValue((int) (curr_samp / sample_rate));
+        }
+
+        if (auto err = writer->close(); !err.isEmpty()) {
+            _status.reportResult(Backend::tr("Error finalizing file: %1").arg(err));
+            return;
+        }
     }
 
 // impl QRunnable
@@ -316,19 +414,18 @@ public:
     void run() override {
         // Based off https://invent.kde.org/qt/qt/qtbase/-/blob/kde/5.15/src/concurrent/qtconcurrentrunbase.h#L95-121
         if (_status.isCanceled()) {
+            _status.reportResult(Backend::tr("Cancelled by user"));
             _status.reportFinished();
             return;
         }
 
         try {
-            // TODO open wav file
-            throw "TODO";
+            callback();
         } catch (QException & e) {
             _status.reportException(e);
         } catch (...) {
             _status.reportException(QUnhandledException());
         }
-
         _status.reportFinished();
     }
 };
@@ -340,7 +437,12 @@ Backend::Backend()
 
 Backend::~Backend() = default;
 
-QString Backend::load_path(QString path) {
+QString Backend::load_path(QString const& path) {
+    if (is_rendering()) {
+        return tr("Cannot load path while rendering");
+    }
+    _render_jobs.clear();
+
     QByteArray file_data;
 
     {
@@ -370,6 +472,7 @@ QString Backend::load_path(QString path) {
         _metadata = move(result.value());
     }
 
+#ifdef BACKEND_DEBUG
     for (auto const& metadata : _metadata->flat_channels) {
         std::cerr
             << (int) metadata.chip_idx << " "
@@ -377,6 +480,7 @@ QString Backend::load_path(QString path) {
             << (int) metadata.chan_idx << " "
             << metadata.name << "\n";
     }
+#endif
 
     // TODO load _channels
 
@@ -415,49 +519,92 @@ std::vector<FlatChannelMetadata> & Backend::channels_mut() {
     return _metadata->flat_channels;
 }
 
-void Backend::start_render() {
-
+std::vector<RenderJobHandle> const& Backend::render_jobs() const {
+    return _render_jobs;
 }
 
-// TODO put in header
-/// Translate a string in a global context, outside of a class.
-static QString gtr(
-    const char *context,
-    const char *sourceText,
-    const char *disambiguation = nullptr,
-    int n = -1)
-{
-    return QCoreApplication::translate(context, sourceText, disambiguation, n);
+bool Backend::is_rendering() const {
+    for (RenderJobHandle const& job : _render_jobs) {
+        if (!job.isFinished()) {
+            return true;
+        }
+    }
+    return false;
 }
 
-struct Unit {};
-#define OK  Ok(Unit{})
+void Backend::cancel_render() {
+    for (RenderJobHandle & job : _render_jobs) {
+        job.cancel();
+    }
+}
 
-static void _change_mute(PlayerBase * player) {
-    UINT8 retVal;
-    PLR_DEV_OPTS devOpts;
-    int chipID = 0;
+// TODO either move type to header, move to unique_ptr in header, or replace Backend
+// with a virtual base class.
+static const RenderSettings RENDER_SETTINGS {
+    .solo = {},
+    .loop_count = 2,
+};
 
-    retVal = player->GetDeviceOptions((UINT32)chipID, devOpts);
-    if (retVal & 0x80) {  // bad device ID
-        return;
+std::vector<QString> Backend::start_render(QString const& path) {
+    if (is_rendering()) {
+        return {tr("Cannot start render while render is active")};
     }
 
-    {
-        PLR_MUTE_OPTS& muteOpts = devOpts.muteOpts;
+    _render_jobs.clear();
 
-        int letter = '\0';
-        if (letter == 'E')
-            muteOpts.disable = 0x00;
-        else if (letter == 'D')
-            muteOpts.disable = 0xFF;
-        else if (letter == 'O')
-            muteOpts.chnMute[0] = 0;
-        else if (letter == 'X')
-            muteOpts.chnMute[0] = ~(UINT32)0;
+    // The number of cores (or hyper-threads).
+    int cores = QThread::idealThreadCount();
 
-        player->SetDeviceMuting((UINT32)chipID, muteOpts);
-        printf("-> Chip %s [0x%02X], Channel Mask: 0x%02X\n",
-            (muteOpts.disable & 0x01) ? "Off" : "On", muteOpts.disable, muteOpts.chnMute[0]);
+    // TODO pick an optimal thread count, based on div(nchan, cores) and treating 0 and
+    // positive separately.
+    _render_thread_pool.setMaxThreadCount(cores);
+
+    std::vector<QString> errors;
+    std::vector<std::unique_ptr<RenderJob>> queued_jobs;
+
+    for (auto const& [chan_idx, channel] : enumerate<size_t>(_metadata->flat_channels)) {
+        if (!channel.enabled) {
+            continue;
+        }
+
+        std::optional<SoloSettings> solo;
+        auto const channel_name = channel.numbered_name(chan_idx);
+
+        QString channel_path;
+
+        // For per-channel jobs, solo the channel.
+        if (channel.chip_idx != (uint8_t) -1) {
+            solo = SoloSettings {
+                .chip_idx = channel.chip_idx,
+                .subchip_idx = channel.subchip_idx,
+                .chan_idx = channel.chan_idx,
+            };
+            channel_path = QFileInfo(path)
+                .dir()
+                .absoluteFilePath(QStringLiteral("%1.wav").arg(channel_name));
+        } else {
+            channel_path = path;
+        }
+
+        auto settings = RENDER_SETTINGS;
+        settings.solo = solo;
+        auto job =
+            RenderJob::make(move(channel_path), _file_data, *_metadata, settings);
+        if (job.is_err()) {
+            errors.push_back(tr("Error rendering %1: %2")
+                .arg(channel_name, job.err_value()));
+        } else {
+            queued_jobs.push_back(move(job.value()));
+        }
     }
+
+    if (!errors.empty()) {
+        return errors;
+    }
+
+    for (auto & job : queued_jobs) {
+        _render_jobs.push_back(job->future());
+        _render_thread_pool.start(job.release());
+    }
+    return errors;
 }
