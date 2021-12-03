@@ -376,7 +376,6 @@ private:
         uint32_t curr_samp = 0;
         while (curr_samp < render_nsamp) {
             if (_status.isCanceled()) {
-                _status.reportResult(Backend::tr("Cancelled by user"));
                 return;
             }
 
@@ -414,7 +413,9 @@ public:
     void run() override {
         // Based off https://invent.kde.org/qt/qt/qtbase/-/blob/kde/5.15/src/concurrent/qtconcurrentrunbase.h#L95-121
         if (_status.isCanceled()) {
-            _status.reportResult(Backend::tr("Cancelled by user"));
+            // Ideally I'd report "Cancelled by user", but after QFuture::cancel() is
+            // called (and QFutureInterface::isCanceled() is set),
+            // QFutureInterface::reportResult() drops all values.
             _status.reportFinished();
             return;
         }
