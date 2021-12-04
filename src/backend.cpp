@@ -190,8 +190,10 @@ struct RenderSettings {
 
     uint32_t loop_count;
 
-    /// In seconds.
+    /// The fadeout duration for looped songs. In seconds.
     float fade_duration = 4.0;
+    /// How long to keep playing after the last command, for unlooped songs. In seconds.
+    float unlooped_tail = 1.0;
 
     // TODO duration override?
 };
@@ -207,6 +209,9 @@ struct RenderJobState {
 
     std::unique_ptr<PlayerA> _player;
     BoxArray<Amplitude, BUFFER_LEN * CHANNEL_COUNT> _buffer = {};
+
+    /// The number of samples to play the song.
+    uint32_t _render_nsamp;
 
     // TODO use something other than QFuture with richer progress info?
     QFutureInterface<QString> _status{};
@@ -226,13 +231,13 @@ public:
         Metadata const& metadata,
         RenderSettings const& opt)
     {
-        std::unique_ptr<PlayerBase> engine;
+        std::unique_ptr<PlayerBase> engine_move;
 
         switch (metadata.player_type) {
-        case FCC_VGM: engine = std::make_unique<VGMPlayer>(); break;
-        case FCC_S98: engine = std::make_unique<S98Player>(); break;
-        case FCC_DRO: engine = std::make_unique<DROPlayer>(); break;
-        case FCC_GYM: engine = std::make_unique<GYMPlayer>(); break;
+        case FCC_VGM: engine_move = std::make_unique<VGMPlayer>(); break;
+        case FCC_S98: engine_move = std::make_unique<S98Player>(); break;
+        case FCC_DRO: engine_move = std::make_unique<DROPlayer>(); break;
+        case FCC_GYM: engine_move = std::make_unique<GYMPlayer>(); break;
         default:
             return Err(Backend::tr("Failed to render, unrecognized file type 0x%1")
                 .arg(QString::number(metadata.player_type, 16).toUpper()));
@@ -256,10 +261,6 @@ public:
 
         auto player = std::make_unique<PlayerA>();
 
-        // Register the correct playback engine. This saves memory compared to
-        // creating 4 different engines for each channel in the file.
-        player->RegisterPlayerEngine(engine.release());
-
         /* setup the player's output parameters and allocate internal buffers */
         if (player->SetOutputSettings(
             opt.sample_rate, CHANNEL_COUNT, BIT_DEPTH, BUFFER_LEN
@@ -269,26 +270,41 @@ public:
             ));
         }
 
-        /* set playback parameters */
-        {
-            PlayerA::Config pCfg = player->GetConfiguration();
-            pCfg.masterVol = opt.volume;
-            pCfg.loopCount = opt.loop_count;
-            pCfg.fadeSmpls = (uint32_t) ((float) opt.sample_rate * opt.fade_duration);
-            pCfg.endSilenceSmpls = 0;
-            pCfg.pbSpeed = 1.0;
-            player->SetConfiguration(pCfg);
-        }
+        // Register the correct playback engine. This saves memory compared to
+        // creating 4 different engines for each channel in the file.
+        player->RegisterPlayerEngine(engine_move.release());
 
+        // Load the file using the playback engine.
         status = player->LoadFile(loader.get());
         if (status) {
             return Err(Backend::tr("Failed to load file, error 0x%1")
                 .arg(format_hex_2(status)));
         }
 
-        PlayerBase * p_engine = player->GetPlayer();
+        PlayerBase * engine = player->GetPlayer();
+
+        bool is_song_looped = engine->GetLoopTicks() > 0;
+        uint32_t extra_nsamp;
+
+        /* set playback parameters */
+        {
+            PlayerA::Config cfg = player->GetConfiguration();
+            cfg.masterVol = opt.volume;
+            cfg.loopCount = is_song_looped ? opt.loop_count : 0;
+            cfg.fadeSmpls = is_song_looped
+                ? (uint32_t) ((float) opt.sample_rate * opt.fade_duration)
+                : 0u;
+            cfg.endSilenceSmpls = is_song_looped
+                ? 0u
+                : (uint32_t) ((float) opt.sample_rate * opt.unlooped_tail);
+            cfg.pbSpeed = 1.0;
+
+            extra_nsamp = cfg.fadeSmpls + cfg.endSilenceSmpls;
+            player->SetConfiguration(cfg);
+        }
+
         if (metadata.player_type == FCC_VGM) {
-            VGMPlayer* vgmplay = dynamic_cast<VGMPlayer *>(p_engine);
+            VGMPlayer* vgmplay = dynamic_cast<VGMPlayer *>(engine);
             release_assert(vgmplay);
             player->SetLoopCount(vgmplay->GetModifiedLoopCount(opt.loop_count));
         }
@@ -298,9 +314,15 @@ public:
         // PLR_DEV_ID(chip, instance) works before calling PlayerA::Start().)
         //
         // It's not necessary to call Start() before GetTotalTime() (but it is
-        // necessary to call it before converting to/from samples).
+        // necessary to call it before Tick2Sample()).
         player->Start();
 
+        /* figure out how many total frames we're going to render */
+        uint32_t render_nsamp =
+            engine->Tick2Sample(engine->GetTotalPlayTicks(player->GetLoopCount()))
+            + extra_nsamp;
+
+        // Mute all but one channel.
         if (opt.solo) {
             SoloSettings const& solo = *opt.solo;
 
@@ -323,22 +345,20 @@ public:
                         mute.chnMute[subchip_idx] = (~0u) ^ (1 << solo.chan_idx);
                     }
                 }
-                status = p_engine->SetDeviceMuting((uint32_t) chip_idx, mute);
+                status = engine->SetDeviceMuting((uint32_t) chip_idx, mute);
                 assert(status == 0);
             }
         }
-
-        auto max_time_s =
-            (int) (player->GetTotalTime(/*includeLoops=*/ 1) + opt.fade_duration);
 
         auto out = std::make_unique<RenderJob>(RenderJobState {
             ._out_path = move(out_path),
             ._file_data = move(file_data),
             ._loader = move(loader),
             ._player = move(player),
+            ._render_nsamp = render_nsamp,
         });
         // Progress range is [0..time in seconds].
-        out->_status.setProgressRange(0, max_time_s);
+        out->_status.setProgressRange(0, (int) (render_nsamp / opt.sample_rate));
         return Ok(std::move(out));
     }
 
@@ -360,21 +380,8 @@ private:
         auto writer = std::move(maybe_writer.value());
         writer->enable_stereo();
 
-        PlayerBase * engine = _player->GetPlayer();
-
-        /* figure out how many total frames we're going to render */
-        uint32_t render_nsamp = engine->Tick2Sample(engine->GetTotalPlayTicks(
-            _player->GetLoopCount()
-        ));
-
-        /* we only want to fade if there's a looping section. Assumption is
-         * if the VGM doesn't specify a loop, it's a song with an actual ending */
-        if(engine->GetLoopTicks()) {
-            render_nsamp += _player->GetConfiguration().fadeSmpls;
-        }
-
         uint32_t curr_samp = 0;
-        while (curr_samp < render_nsamp) {
+        while (curr_samp < _render_nsamp) {
             if (_status.isCanceled()) {
                 return;
             }
@@ -382,7 +389,7 @@ private:
             std::fill(_buffer.begin(), _buffer.end(), 0);
 
             /* default to BUFFER_LEN PCM frames unless we have under BUFFER_LEN remaining */
-            auto curr_frames = std::min(render_nsamp - curr_samp, BUFFER_LEN);
+            auto curr_frames = std::min(_render_nsamp - curr_samp, BUFFER_LEN);
 
             // Render audio. Pass buffer size in bytes.
             _player->Render(
