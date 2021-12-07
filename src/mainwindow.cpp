@@ -14,7 +14,6 @@
 
 // Model-view
 #include <QAbstractListModel>
-#include <QAbstractTableModel>
 #include <QMimeData>
 #include <QListView>
 
@@ -246,17 +245,7 @@ public:
     }
 };
 
-class ChannelsModel final : public QAbstractTableModel {
-public:
-    enum Column {
-        NameColumn,
-        ProgressColumn,
-        ColumnCount,
-    };
-
-    static constexpr int MASTER_AUDIO_ROW = 0;
-    static constexpr int CHANNEL_0_ROW = 1;
-
+class ChannelsModel final : public QAbstractListModel {
 private:
     Backend * _backend;
 
@@ -294,16 +283,6 @@ public:
         }
     }
 
-    int columnCount(QModelIndex const & parent) const override {
-        if (parent.isValid()) {
-            // Rows do not have children.
-            return 0;
-        } else {
-            // The root has items.
-            return ColumnCount;
-        }
-    }
-
     QVariant data(QModelIndex const & index, int role) const override {
         auto & channels = this->get_channels();
 
@@ -311,8 +290,7 @@ public:
             return {};
         }
 
-        auto column = (size_t) index.column();
-        if (column >= ColumnCount) {
+        if (index.column() != 0) {
             return {};
         }
 
@@ -321,26 +299,12 @@ public:
             return {};
         }
 
-        switch (column) {
-        case NameColumn:
-            switch (role) {
-            case Qt::DisplayRole:
-                return channels[row].numbered_name(row);
+        switch (role) {
+        case Qt::DisplayRole:
+            return channels[row].numbered_name(row);
 
-            case Qt::CheckStateRole:
-                return channels[row].enabled ? Qt::Checked : Qt::Unchecked;
-
-            default: return {};
-            }
-
-        case ProgressColumn:
-            switch (role) {
-            case Qt::DisplayRole:
-                // TODO add custom ProgressPercentRole, ProgressTimeRole, ProgressDurationRole etc.
-                return (double) 0.;
-
-            default: return {};
-            }
+        case Qt::CheckStateRole:
+            return channels[row].enabled ? Qt::Checked : Qt::Unchecked;
 
         default: return {};
         }
@@ -367,7 +331,7 @@ public:
     }
 
     Qt::ItemFlags flags(QModelIndex const& index) const override {
-        Qt::ItemFlags flags = QAbstractTableModel::flags(index);
+        Qt::ItemFlags flags = QAbstractListModel::flags(index);
         if (index.isValid()) {
             flags |= Qt::ItemIsUserCheckable;
         }
@@ -481,6 +445,8 @@ public:
 
                 w->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
                 w->setModel(&_chips_model);
+
+                // TODO add up/down buttons
             }
 
             l->addWidget(new QLabel(tr("Channel Select")), 0, 1);
