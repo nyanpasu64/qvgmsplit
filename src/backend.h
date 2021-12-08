@@ -51,6 +51,8 @@ struct FlatChannelMetadata {
     QString numbered_name(size_t row) const;
 };
 
+constexpr uint8_t NO_CHIP = (uint8_t) -1;
+
 class Backend {
     Q_DECLARE_TR_FUNCTIONS(Backend)
 
