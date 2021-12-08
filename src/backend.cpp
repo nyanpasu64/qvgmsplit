@@ -359,6 +359,11 @@ public:
         });
         // Progress range is [0..time in seconds].
         out->_status.setProgressRange(0, (int) (render_nsamp / opt.sample_rate));
+
+        // The initial progress value is already 0, but we need to call
+        // setProgressValue(0) so reportResult() doesn't increment the progress value.
+        out->_status.setProgressValue(0);
+
         return Ok(std::move(out));
     }
 
