@@ -16,6 +16,7 @@
 #include <player/s98player.hpp>
 #include <player/droplayer.hpp>
 #include <player/gymplayer.hpp>
+#include <emu/SoundDevs.h>
 #include <emu/SoundEmu.h>
 
 #include <stx/result.h>
@@ -57,6 +58,26 @@ struct DeleteDataLoader {
 };
 
 using BoxDataLoader = std::unique_ptr<DATA_LOADER, DeleteDataLoader>;
+
+static bool compare_chips(PLR_DEV_INFO const& a, PLR_DEV_INFO const& b) {
+    static constexpr auto key = [](uint8_t type) -> int {
+        // Order PSG after YM2612. Keep PSG before 32X, because base console chips
+        // should come before expansions.
+        static_assert(DEVID_SN76496 < DEVID_YM2612, "PSG already after YM2612");
+        if (type == DEVID_SN76496) {
+            return (int) (DEVID_YM2612 << 8) + 1;
+        }
+
+        // TODO add more overrides as necessary.
+        return (int) (type << 8);
+    };
+    return key(a.type) < key(b.type);
+}
+
+/// Sort chips in a more natural order for end users.
+static void sort_chips(std::vector<PLR_DEV_INFO> & devices) {
+    std::stable_sort(devices.begin(), devices.end(), compare_chips);
+}
 
 struct Metadata {
     uint32_t player_type;
@@ -105,6 +126,7 @@ public:
 
         PlayerBase * engine = player->GetPlayer();
         engine->GetSongDeviceInfo(devices);
+        sort_chips(devices);
 
         std::vector<ChipMetadata> chips;
         std::vector<FlatChannelMetadata> flat_channels = {
