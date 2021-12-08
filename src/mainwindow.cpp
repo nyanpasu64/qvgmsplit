@@ -529,9 +529,10 @@ public:
 
     void load_path(QString file_path) {
         auto tx = edit_unwrap();
-        // Should be called before Backend::load_path() overwrites metadata.
-        tx.file_replaced();
 
+        // StateTransaction::file_replaced() must be called before
+        // calling Backend::load_path(), which overwrites metadata.
+        tx.file_replaced();
         auto err = _backend.load_path(file_path);
 
         if (!err.isEmpty()) {
@@ -706,6 +707,11 @@ StateTransaction::~StateTransaction() noexcept(false) {
     // Chips list
     if (e & E::FileReplaced) {
         _win->_chips_model.end_reset_model();
+
+        // Select the first chip to make the up/down buttons more clear.
+        _win->_chips_view->selectionModel()->select(
+            _win->_chips_model.index(0), QItemSelectionModel::ClearAndSelect
+        );
     }
 
     // Channels list
