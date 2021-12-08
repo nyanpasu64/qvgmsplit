@@ -10,6 +10,7 @@
 #include <QGridLayout>
 #include <QLabel>
 #include <QMenuBar>
+#include <QPushButton>
 #include <QToolBar>
 
 // Model-view
@@ -57,12 +58,38 @@ public:
         endResetModel();
     }
 
+    void move_up(QModelIndex const& idx) {
+        if (!idx.isValid()) {
+            return;
+        }
+        int row = idx.row();
+
+        if (!(1 <= row && row < (int) get_chips().size())) {
+            return;
+        }
+
+        auto tx = _win->edit_unwrap();
+        auto & chips = chips_mut(tx);
+
+        beginMoveRows({}, row, row, {}, row - 1);
+        std::swap(chips[(size_t) row], chips[(size_t) (row - 1)]);
+        endMoveRows();
+    }
+
+    void move_down(QModelIndex const& idx) {
+        if (!idx.isValid()) {
+            return;
+        }
+        move_up(this->index(idx.row() + 1, 0));
+    }
+
 private:
     std::vector<ChipMetadata> const& get_chips() const {
         return _win->_backend.chips();
     }
 
-    std::vector<ChipMetadata> & chips_mut() const {
+    std::vector<ChipMetadata> & chips_mut(StateTransaction & tx) const {
+        tx.chips_changed();
         return _win->_backend.chips_mut();
     }
 
@@ -133,6 +160,10 @@ public:
         int insert_column,
         QModelIndex const& replace_index)
     override {
+        // Heavily overengineered to support QTableView and ExtendedSelection.
+        // This function can be simplified or replaced since we're now using QListView
+        // and SingleSelection.
+
         // Based off QAbstractListModel::dropMimeData().
         if (!data || action != Qt::MoveAction)
             return false;
@@ -159,7 +190,8 @@ public:
                 dragged_rows.insert(drag_row);
             }
 
-            auto & old_chips = chips_mut();
+            auto tx = _win->edit_unwrap();
+            auto & old_chips = chips_mut(tx);
             auto n = old_chips.size();
 
             QModelIndexList from, to;
@@ -207,8 +239,6 @@ public:
             changePersistentIndexList(from, to);
             old_chips = std::move(new_chips);
 
-            auto tx = _win->edit_unwrap();
-            tx.chips_changed();
             return true;
         }
 
@@ -229,7 +259,7 @@ public:
     explicit ChipsView(QWidget *parent = nullptr)
         : QListView(parent)
     {
-        setSelectionMode(QAbstractItemView::ExtendedSelection);
+        setSelectionMode(QAbstractItemView::SingleSelection);
 
         setDragEnabled(true);
         setAcceptDrops(true);
@@ -382,6 +412,8 @@ public:
     ChannelsModel _channels_model;
 
     ChipsView * _chips_view;
+    QPushButton * _move_up;
+    QPushButton * _move_down;
     ChannelsView * _channels_view;
 
     QAction * _open;
@@ -439,14 +471,25 @@ public:
             l->setContentsMargins(-1, 6, -1, -1);
 
             l->addWidget(new QLabel(tr("Chip Order")), 0, 0);
-            {auto w = new ChipsView;
-                l->addWidget(w, 1, 0);
-                _chips_view = w;
+            {
+                auto grid = l;
+                auto l = new QVBoxLayout;
+                grid->addLayout(l, 1, 0);
 
-                w->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-                w->setModel(&_chips_model);
+                {l__w(ChipsView);
+                    _chips_view = w;
 
-                // TODO add up/down buttons
+                    w->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+                    w->setModel(&_chips_model);
+                }
+                {l__l(QHBoxLayout);
+                    {l__w(QPushButton(tr("&Up")));
+                        _move_up = w;
+                    }
+                    {l__w(QPushButton(tr("&Down")));
+                        _move_down = w;
+                    }
+                }
             }
 
             l->addWidget(new QLabel(tr("Channel Select")), 0, 1);
@@ -467,6 +510,9 @@ public:
 
         _exit->setShortcuts(QKeySequence::Quit);
         connect(_exit, &QAction::triggered, this, &MainWindowImpl::close);
+
+        connect(_move_up, &QPushButton::clicked, this, &MainWindowImpl::move_up);
+        connect(_move_down, &QPushButton::clicked, this, &MainWindowImpl::move_down);
 
         _render_status_timer.setInterval(200);
         connect(
@@ -511,6 +557,14 @@ public:
 
         setWindowFilePath(_file_path);
         // setWindowModified(false);
+    }
+
+    void move_up() {
+        _chips_model.move_up(_chips_view->currentIndex());
+    }
+
+    void move_down() {
+        _chips_model.move_down(_chips_view->currentIndex());
     }
 
     void on_open() {
