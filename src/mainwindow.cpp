@@ -574,6 +574,9 @@ public:
 
         setWindowFilePath(_file_path);
         // setWindowModified(false);
+
+        // Disable render button when no file is open.
+        _render->setDisabled(_backend.channels().empty());
     }
 
     void move_up() {
