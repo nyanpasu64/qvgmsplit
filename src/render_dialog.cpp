@@ -178,33 +178,33 @@ RenderDialog::RenderDialog(Backend *backend, MainWindow *parent_win)
 
     {l__w(QProgressBar);
         _progress = w;
+        w->setHidden(true);
     }
     {l__splitl(QSplitter);
         l->setOrientation(Qt::Vertical);
         {l__c_l(QWidget, QVBoxLayout);
             l->setContentsMargins(0, 0, 0, 0);
-            {l__w(QLabel(tr("Progress:")));
-            }
             {l__w(QTreeView);
                 _job_list = w;
                 w->setModel(_model);
+                w->setHeaderHidden(true);
                 w->setTreePosition(JobModel::COLUMN_COUNT);
                 w->resizeColumnToContents(JobModel::NameColumn);
             }
         }
         {l__c_l(QWidget, QVBoxLayout);
             l->setContentsMargins(0, -1, 0, 0);
-            {l__w(QLabel(tr("Errors:")));
-            }
             {l__w(QPlainTextEdit);
                 _error_log = w;
                 w->setReadOnly(true);
+                w->setHidden(true);
             }
         }
 
     }
     {l__w(QPushButton(tr("Cancel")));
         _cancel_close = w;
+        w->setHidden(true);
     }
 
     int total_progress = 0;

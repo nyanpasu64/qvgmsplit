@@ -459,12 +459,15 @@ public:
         auto main = this;
 
         {main__m();
+            m->setHidden(true);
             {m__m(tr("&File"));
                 {m__action(tr("&Open"));
                     _open = a;
+                    addAction(a);
                 }
                 {m__action(tr("&Render"));
                     _render = a;
+                    addAction(a);
                 }
                 m->addSeparator();
                 {m__action(tr("E&xit"));
@@ -473,14 +476,8 @@ public:
             }
         }
 
-        {main__tb(QToolBar);
-            tb->setMovable(false);
-
-            tb->addAction(_open);
-            tb->addAction(_render);
-        }
-
         {main__central_c_l(QWidget, QGridLayout);
+            c->setHidden(true);
             l->setContentsMargins(-1, 6, -1, -1);
 
             l->addWidget(new QLabel(tr("Chip Order")), 0, 0);
