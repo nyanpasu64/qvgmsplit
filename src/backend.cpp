@@ -482,8 +482,6 @@ QString Backend::load_path(QString const& path) {
     }
 #endif
 
-    // TODO load _channels
-
     return {};
 }
 
