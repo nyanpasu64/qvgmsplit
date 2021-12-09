@@ -199,6 +199,9 @@ struct RenderSettings {
 };
 
 struct RenderJobState {
+    /// Only shown for debugging purposes.
+    QString _name;
+
     QString _out_path;
 
     /// Implicitly shared, read-only.
@@ -226,6 +229,7 @@ public:  // Public for std::make_unique.
 
 public:
     static Result<std::unique_ptr<RenderJob>, QString> make(
+        QString name,
         QString out_path,
         QByteArray file_data,
         Metadata const& metadata,
@@ -351,6 +355,7 @@ public:
         }
 
         auto out = std::make_unique<RenderJob>(RenderJobState {
+            ._name = move(name),
             ._out_path = move(out_path),
             ._file_data = move(file_data),
             ._loader = move(loader),
@@ -367,8 +372,12 @@ public:
         return Ok(std::move(out));
     }
 
-    QFuture<QString> future() {
-        return _status.future();
+    RenderJobHandle future() {
+        return RenderJobHandle {
+            .name = _name,
+            .path = _out_path,
+            .future = _status.future(),
+        };
     }
 
 private:
@@ -386,6 +395,8 @@ private:
         writer->enable_stereo();
 
         uint32_t curr_samp = 0;
+        int curr_progress = 0;
+
         while (curr_samp < _render_nsamp) {
             if (_status.isCanceled()) {
                 return;
@@ -410,8 +421,15 @@ private:
                 return;
             }
             curr_samp += curr_frames;
+
             // Set current time in seconds.
-            _status.setProgressValue((int) (curr_samp / sample_rate));
+            auto progress = (int) (curr_samp / sample_rate);
+            if (progress != curr_progress) {
+                // Only call setProgressValue() when progress has changed, to avoid
+                // unnecessary mutex locking.
+                _status.setProgressValue(progress);
+                curr_progress = progress;
+            }
         }
 
         if (auto err = writer->close(); !err.isEmpty()) {
@@ -540,7 +558,7 @@ std::vector<RenderJobHandle> const& Backend::render_jobs() const {
 
 bool Backend::is_rendering() const {
     for (RenderJobHandle const& job : _render_jobs) {
-        if (!job.isFinished()) {
+        if (!job.future.isFinished()) {
             return true;
         }
     }
@@ -549,7 +567,7 @@ bool Backend::is_rendering() const {
 
 void Backend::cancel_render() {
     for (RenderJobHandle & job : _render_jobs) {
-        job.cancel();
+        job.future.cancel();
     }
 }
 
@@ -603,8 +621,9 @@ std::vector<QString> Backend::start_render(QString const& path) {
 
         auto settings = RENDER_SETTINGS;
         settings.solo = solo;
-        auto job =
-            RenderJob::make(move(channel_path), _file_data, *_metadata, settings);
+        auto job = RenderJob::make(
+            channel_name, move(channel_path), _file_data, *_metadata, settings
+        );
         if (job.is_err()) {
             errors.push_back(tr("Error rendering %1: %2")
                 .arg(channel_name, job.err_value()));

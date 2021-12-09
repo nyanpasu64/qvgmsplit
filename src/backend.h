@@ -24,7 +24,11 @@ struct ChipMetadata {
     uint8_t chip_idx;
 };
 
-using RenderJobHandle = QFuture<QString>;
+struct RenderJobHandle {
+    QString name;
+    QString path;
+    QFuture<QString> future;
+};
 
 /// Uniquely identifies a channel in a .vgm file.
 /// The metadata used to mute a particular channel by setting
