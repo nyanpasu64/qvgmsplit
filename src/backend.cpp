@@ -394,6 +394,17 @@ public:
         return Ok(std::move(out));
     }
 
+    void start_consume(QThreadPool * pool) {
+        // Based off https://invent.kde.org/qt/qt/qtbase/-/blob/kde/5.15/src/concurrent/qtconcurrentrunbase.h#L72-93.
+        // I'm not sure why you need to call setThreadPool or setRunnable, especially
+        // since Qt 6's QPromise (https://invent.kde.org/qt/qt/qtbase/-/blob/dev/src/corelib/thread/qpromise.h)
+        // sets neither.
+        _status.setThreadPool(pool);
+        _status.setRunnable(this);
+        _status.reportStarted();
+        pool->start(this);
+    }
+
     RenderJobHandle future() {
         return RenderJobHandle {
             .name = _name,
@@ -660,7 +671,7 @@ std::vector<QString> Backend::start_render(QString const& path) {
 
     for (auto & job : queued_jobs) {
         _render_jobs.push_back(job->future());
-        _render_thread_pool.start(job.release());
+        job.release()->start_consume(&_render_thread_pool);
     }
     return errors;
 }
