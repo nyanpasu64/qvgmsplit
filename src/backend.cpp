@@ -1,5 +1,6 @@
 #include "backend.h"
 #include "lib/box_array.h"
+#include "lib/defer.h"
 #include "lib/enumerate.h"
 #include "lib/format.h"
 #include "lib/release_assert.h"
@@ -235,9 +236,6 @@ struct RenderJobState {
     std::unique_ptr<PlayerA> _player;
     BoxArray<Amplitude, BUFFER_LEN * CHANNEL_COUNT> _buffer = {};
 
-    /// The number of samples to play the song.
-    uint32_t _render_nsamp;
-
     // TODO use something other than QFuture with richer progress info?
     QFutureInterface<QString> _status{};
 };
@@ -382,7 +380,6 @@ public:
             ._file_data = move(file_data),
             ._loader = move(loader),
             ._player = move(player),
-            ._render_nsamp = render_nsamp,
         });
         // Progress range is [0..time in seconds].
         out->_status.setProgressRange(0, (int) (render_nsamp / opt.sample_rate));
@@ -430,20 +427,57 @@ private:
         uint32_t curr_samp = 0;
         int curr_progress = -1;
 
-        while (curr_samp < _render_nsamp) {
+        struct State {
+            bool done = false;
+        };
+        State state;
+
+        /*
+        PlayerA::SetEventCallback() sets the PlayerA::_plrCbFunc field.
+
+        During calls to PlayerA::Render(), PlayerBase (the playback engine interface)
+        calls PlayerA::PlayCallback() when the song loops or ends.
+        PlayerA::PlayCallback() forwards all callbacks except PLREVT_END to
+        PlayerA::_plrCbFunc(). I wrote _plrCbFunc to return zero, since returning a
+        nonzero value makes PlayerA::PlayCallback() return early, and (for PLREVT_LOOP
+        events) makes PlayerBase trigger PLREVT_END instead.
+
+        After PlayerBase calls PlayerA::PlayCallback(PLREVT_END), PlayerA::Render()
+        waits (fadeSmpls + endSilenceSmpls) samples before calling
+        PlayerA::_plrCbFunc(PLREVT_END). You should stop calling PlayerA::Render()
+        after the PLREVT_END event.
+        */
+        _player->SetEventCallback([](
+            PlayerBase* player, void* userParam, UINT8 evtType, void* evtParam
+        ) -> UINT8 {
+            auto & state = *(State *) userParam;
+            if (evtType == PLREVT_END) {
+                state.done = true;
+            }
+            return 0;
+        }, &state);
+        defer { _player->SetEventCallback(nullptr, nullptr); };
+
+        while (!state.done) {
             if (_status.isCanceled()) {
                 return;
             }
 
             std::fill(_buffer.begin(), _buffer.end(), 0);
 
-            /* default to BUFFER_LEN PCM frames unless we have under BUFFER_LEN remaining */
-            auto curr_frames = std::min(_render_nsamp - curr_samp, BUFFER_LEN);
+            // Render audio.
+            //
+            // Render() takes buffer size in bytes, and returns bytes written. We
+            // convert it into frames written.
+            //
+            // On song end, Render() calls the SetEventCallback() callback (which sets
+            // state.done = true) and performs a short write.
 
-            // Render audio. Pass buffer size in bytes.
-            _player->Render(
-                curr_frames * CHANNEL_COUNT * (BIT_DEPTH / 8), _buffer.data()
-            );
+            auto curr_frames =
+                _player->Render(
+                    BUFFER_LEN * CHANNEL_COUNT * (BIT_DEPTH / 8), _buffer.data()
+                )
+                / CHANNEL_COUNT / (BIT_DEPTH / 8);
 
             // Write audio. Pass buffer size in samples.
             if (
