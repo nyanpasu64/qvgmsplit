@@ -271,7 +271,7 @@ public:
 
 // impl QWidget
     QSize sizeHint() const {
-        return QSize(128, 128);
+        return QSize(144, 144);
     }
 };
 
@@ -379,6 +379,20 @@ public:
     }
 };
 
+class SmallButton : public QPushButton {
+public:
+    // SmallButton()
+    using QPushButton::QPushButton;
+
+// impl QWidget
+public:
+    QSize sizeHint() const {
+        auto out = QPushButton::sizeHint();
+        out.setWidth(0);
+        return out;
+    }
+};
+
 static QString errors_to_html(QString const& prefix, std::vector<QString> const& errors) {
     QTextDocument document;
     auto cursor = QTextCursor(&document);
@@ -483,10 +497,10 @@ public:
                     w->setModel(&_chips_model);
                 }
                 {l__l(QHBoxLayout);
-                    {l__w(QPushButton(tr("&Up")));
+                    {l__w(SmallButton(tr("&Up")));
                         _move_up = w;
                     }
-                    {l__w(QPushButton(tr("&Down")));
+                    {l__w(SmallButton(tr("&Down")));
                         _move_down = w;
                     }
                 }
