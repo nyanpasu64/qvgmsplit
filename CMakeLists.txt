@@ -103,6 +103,8 @@ set(PROJECT_SOURCES
     src/main.cpp
     src/mainwindow.cpp
     src/mainwindow.h
+    src/render_dialog.cpp
+    src/render_dialog.h
     src/vgm.cpp
     src/vgm.h
     src/wave_writer.cpp
