@@ -235,9 +235,6 @@ struct RenderJobState {
     std::unique_ptr<PlayerA> _player;
     BoxArray<Amplitude, BUFFER_LEN * CHANNEL_COUNT> _buffer = {};
 
-    /// The number of samples to play the song.
-    uint32_t _render_nsamp;
-
     // TODO use something other than QFuture with richer progress info?
     QFutureInterface<QString> _status{};
 };
@@ -382,7 +379,6 @@ public:
             ._file_data = move(file_data),
             ._loader = move(loader),
             ._player = move(player),
-            ._render_nsamp = render_nsamp,
         });
         // Progress range is [0..time in seconds].
         out->_status.setProgressRange(0, (int) (render_nsamp / opt.sample_rate));
@@ -430,20 +426,28 @@ private:
         uint32_t curr_samp = 0;
         int curr_progress = 0;
 
-        while (curr_samp < _render_nsamp) {
+        bool done = false;
+        while (!done) {
             if (_status.isCanceled()) {
                 return;
             }
 
             std::fill(_buffer.begin(), _buffer.end(), 0);
 
-            /* default to BUFFER_LEN PCM frames unless we have under BUFFER_LEN remaining */
-            auto curr_frames = std::min(_render_nsamp - curr_samp, BUFFER_LEN);
-
-            // Render audio. Pass buffer size in bytes.
-            _player->Render(
-                curr_frames * CHANNEL_COUNT * (BIT_DEPTH / 8), _buffer.data()
-            );
+            // Render audio.
+            //
+            // PlayerA::Render() takes buffer size in bytes, and returns bytes written.
+            // We convert it into frames written.
+            //
+            // On song end, PlayerA::Render() performs a short write and sets
+            // PlayerA::GetState() |= PLAYSTATE_FIN.
+            uint32_t curr_frames =
+                _player->Render(
+                    BUFFER_LEN * CHANNEL_COUNT * (BIT_DEPTH / 8), _buffer.data()
+                ) / CHANNEL_COUNT / (BIT_DEPTH / 8);
+            if (_player->GetState() & PLAYSTATE_FIN) {
+                done = true;
+            }
 
             // Write audio. Pass buffer size in samples.
             if (
