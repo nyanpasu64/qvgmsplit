@@ -12,7 +12,7 @@
 #include <QPushButton>
 #include <QSplitter>
 
-#include <QTreeView>
+#include <QListView>
 #include <QAbstractTableModel>
 
 #include <QDebug>
@@ -184,12 +184,9 @@ RenderDialog::RenderDialog(Backend *backend, MainWindow *parent_win)
         l->setOrientation(Qt::Vertical);
         {l__c_l(QWidget, QVBoxLayout);
             l->setContentsMargins(0, 0, 0, 0);
-            {l__w(QTreeView);
+            {l__w(QListView);
                 _job_list = w;
                 w->setModel(_model);
-                w->setHeaderHidden(true);
-                w->setTreePosition(JobModel::COLUMN_COUNT);
-                w->resizeColumnToContents(JobModel::NameColumn);
             }
         }
         {l__c_l(QWidget, QVBoxLayout);

@@ -12,7 +12,7 @@ class Backend;
 class QPlainTextEdit;
 class QProgressBar;
 class QPushButton;
-class QTreeView;
+class QListView;
 class JobModel;
 
 #ifndef render_dialog_INTERNAL
@@ -26,7 +26,7 @@ render_dialog_INTERNAL:
     JobModel * _model;
 
     QProgressBar * _progress;
-    QTreeView * _job_list;
+    QListView * _job_list;
     QPlainTextEdit * _error_log;
     QPushButton * _cancel_close;
 
