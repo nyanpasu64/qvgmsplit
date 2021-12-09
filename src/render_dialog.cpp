@@ -188,6 +188,7 @@ RenderDialog::RenderDialog(Backend *backend, MainWindow *parent_win)
             {l__w(QTreeView);
                 _job_list = w;
                 w->setModel(_model);
+                w->setTreePosition(JobModel::COLUMN_COUNT);
                 w->resizeColumnToContents(JobModel::NameColumn);
             }
         }
