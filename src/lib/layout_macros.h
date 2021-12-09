@@ -175,5 +175,14 @@
     form__label_wptr(LEFT_TEXT, new RIGHT)
 
 
+/// Add a QSplitter which pretends to be a QLayout (is assigned to l).
+#define l__splitl(QSPLITTER, ...) \
+    auto * parentL = l; \
+    auto * l = new QSPLITTER; \
+    parentL->addWidget(l VA_COMMA(__VA_ARGS__)); \
+    \
+    require_semicolon
+
+
 #define append_stretch(...) \
     l->addStretch(__VA_ARGS__)
