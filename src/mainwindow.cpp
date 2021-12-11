@@ -10,11 +10,11 @@
 #include <QGridLayout>
 #include <QLabel>
 #include <QMenuBar>
+#include <QPushButton>
 #include <QToolBar>
 
 // Model-view
 #include <QAbstractListModel>
-#include <QAbstractTableModel>
 #include <QMimeData>
 #include <QListView>
 
@@ -58,12 +58,38 @@ public:
         endResetModel();
     }
 
+    void move_up(QModelIndex const& idx) {
+        if (!idx.isValid()) {
+            return;
+        }
+        int row = idx.row();
+
+        if (!(1 <= row && row < (int) get_chips().size())) {
+            return;
+        }
+
+        auto tx = _win->edit_unwrap();
+        auto & chips = chips_mut(tx);
+
+        beginMoveRows({}, row, row, {}, row - 1);
+        std::swap(chips[(size_t) row], chips[(size_t) (row - 1)]);
+        endMoveRows();
+    }
+
+    void move_down(QModelIndex const& idx) {
+        if (!idx.isValid()) {
+            return;
+        }
+        move_up(this->index(idx.row() + 1, 0));
+    }
+
 private:
     std::vector<ChipMetadata> const& get_chips() const {
         return _win->_backend.chips();
     }
 
-    std::vector<ChipMetadata> & chips_mut() const {
+    std::vector<ChipMetadata> & chips_mut(StateTransaction & tx) const {
+        tx.chips_changed();
         return _win->_backend.chips_mut();
     }
 
@@ -134,6 +160,10 @@ public:
         int insert_column,
         QModelIndex const& replace_index)
     override {
+        // Heavily overengineered to support QTableView and ExtendedSelection.
+        // This function can be simplified or replaced since we're now using QListView
+        // and SingleSelection.
+
         // Based off QAbstractListModel::dropMimeData().
         if (!data || action != Qt::MoveAction)
             return false;
@@ -160,7 +190,8 @@ public:
                 dragged_rows.insert(drag_row);
             }
 
-            auto & old_chips = chips_mut();
+            auto tx = _win->edit_unwrap();
+            auto & old_chips = chips_mut(tx);
             auto n = old_chips.size();
 
             QModelIndexList from, to;
@@ -208,8 +239,6 @@ public:
             changePersistentIndexList(from, to);
             old_chips = std::move(new_chips);
 
-            auto tx = _win->edit_unwrap();
-            tx.chips_changed();
             return true;
         }
 
@@ -230,7 +259,7 @@ public:
     explicit ChipsView(QWidget *parent = nullptr)
         : QListView(parent)
     {
-        setSelectionMode(QAbstractItemView::ExtendedSelection);
+        setSelectionMode(QAbstractItemView::SingleSelection);
 
         setDragEnabled(true);
         setAcceptDrops(true);
@@ -242,21 +271,11 @@ public:
 
 // impl QWidget
     QSize sizeHint() const {
-        return QSize(128, 128);
+        return QSize(144, 144);
     }
 };
 
-class ChannelsModel final : public QAbstractTableModel {
-public:
-    enum Column {
-        NameColumn,
-        ProgressColumn,
-        ColumnCount,
-    };
-
-    static constexpr int MASTER_AUDIO_ROW = 0;
-    static constexpr int CHANNEL_0_ROW = 1;
-
+class ChannelsModel final : public QAbstractListModel {
 private:
     Backend * _backend;
 
@@ -294,16 +313,6 @@ public:
         }
     }
 
-    int columnCount(QModelIndex const & parent) const override {
-        if (parent.isValid()) {
-            // Rows do not have children.
-            return 0;
-        } else {
-            // The root has items.
-            return ColumnCount;
-        }
-    }
-
     QVariant data(QModelIndex const & index, int role) const override {
         auto & channels = this->get_channels();
 
@@ -311,8 +320,7 @@ public:
             return {};
         }
 
-        auto column = (size_t) index.column();
-        if (column >= ColumnCount) {
+        if (index.column() != 0) {
             return {};
         }
 
@@ -321,26 +329,12 @@ public:
             return {};
         }
 
-        switch (column) {
-        case NameColumn:
-            switch (role) {
-            case Qt::DisplayRole:
-                return channels[row].numbered_name(row);
+        switch (role) {
+        case Qt::DisplayRole:
+            return channels[row].numbered_name(row);
 
-            case Qt::CheckStateRole:
-                return channels[row].enabled ? Qt::Checked : Qt::Unchecked;
-
-            default: return {};
-            }
-
-        case ProgressColumn:
-            switch (role) {
-            case Qt::DisplayRole:
-                // TODO add custom ProgressPercentRole, ProgressTimeRole, ProgressDurationRole etc.
-                return (double) 0.;
-
-            default: return {};
-            }
+        case Qt::CheckStateRole:
+            return channels[row].enabled ? Qt::Checked : Qt::Unchecked;
 
         default: return {};
         }
@@ -367,7 +361,7 @@ public:
     }
 
     Qt::ItemFlags flags(QModelIndex const& index) const override {
-        Qt::ItemFlags flags = QAbstractTableModel::flags(index);
+        Qt::ItemFlags flags = QAbstractListModel::flags(index);
         if (index.isValid()) {
             flags |= Qt::ItemIsUserCheckable;
         }
@@ -382,6 +376,20 @@ public:
         : QListView(parent)
     {
         setSelectionMode(QAbstractItemView::ExtendedSelection);
+    }
+};
+
+class SmallButton : public QPushButton {
+public:
+    // SmallButton()
+    using QPushButton::QPushButton;
+
+// impl QWidget
+public:
+    QSize sizeHint() const {
+        auto out = QPushButton::sizeHint();
+        out.setWidth(0);
+        return out;
     }
 };
 
@@ -418,6 +426,8 @@ public:
     ChannelsModel _channels_model;
 
     ChipsView * _chips_view;
+    QPushButton * _move_up;
+    QPushButton * _move_down;
     ChannelsView * _channels_view;
 
     QAction * _open;
@@ -475,12 +485,25 @@ public:
             l->setContentsMargins(-1, 6, -1, -1);
 
             l->addWidget(new QLabel(tr("Chip Order")), 0, 0);
-            {auto w = new ChipsView;
-                l->addWidget(w, 1, 0);
-                _chips_view = w;
+            {
+                auto grid = l;
+                auto l = new QVBoxLayout;
+                grid->addLayout(l, 1, 0);
 
-                w->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-                w->setModel(&_chips_model);
+                {l__w(ChipsView);
+                    _chips_view = w;
+
+                    w->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+                    w->setModel(&_chips_model);
+                }
+                {l__l(QHBoxLayout);
+                    {l__w(SmallButton(tr("&Up")));
+                        _move_up = w;
+                    }
+                    {l__w(SmallButton(tr("&Down")));
+                        _move_down = w;
+                    }
+                }
             }
 
             l->addWidget(new QLabel(tr("Channel Select")), 0, 1);
@@ -502,6 +525,9 @@ public:
         _exit->setShortcuts(QKeySequence::Quit);
         connect(_exit, &QAction::triggered, this, &MainWindowImpl::close);
 
+        connect(_move_up, &QPushButton::clicked, this, &MainWindowImpl::move_up);
+        connect(_move_down, &QPushButton::clicked, this, &MainWindowImpl::move_down);
+
         _render_status_timer.setInterval(200);
         connect(
             &_render_status_timer, &QTimer::timeout,
@@ -517,9 +543,12 @@ public:
 
     void load_path(QString file_path) {
         auto tx = edit_unwrap();
-        // Should be called before Backend::load_path() overwrites metadata.
-        tx.file_replaced();
 
+        // StateTransaction::file_replaced() must be called before the chips/channels
+        // change. Backend::load_path() overwrites the chips/channels, so we must call
+        // file_replaced() first.
+        tx.file_replaced();
+        // TODO make Backend::load_path() accept StateTransaction &?
         auto err = _backend.load_path(file_path);
 
         if (!err.isEmpty()) {
@@ -545,6 +574,14 @@ public:
 
         setWindowFilePath(_file_path);
         // setWindowModified(false);
+    }
+
+    void move_up() {
+        _chips_model.move_up(_chips_view->currentIndex());
+    }
+
+    void move_down() {
+        _chips_model.move_down(_chips_view->currentIndex());
     }
 
     void on_open() {
@@ -686,6 +723,11 @@ StateTransaction::~StateTransaction() noexcept(false) {
     // Chips list
     if (e & E::FileReplaced) {
         _win->_chips_model.end_reset_model();
+
+        // Highlight the first chip, which gets moved by the up/down buttons.
+        _win->_chips_view->selectionModel()->select(
+            _win->_chips_model.index(0), QItemSelectionModel::ClearAndSelect
+        );
     }
 
     // Channels list

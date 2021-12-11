@@ -16,6 +16,7 @@
 #include <player/s98player.hpp>
 #include <player/droplayer.hpp>
 #include <player/gymplayer.hpp>
+#include <emu/SoundDevs.h>
 #include <emu/SoundEmu.h>
 
 #include <stx/result.h>
@@ -57,6 +58,26 @@ struct DeleteDataLoader {
 };
 
 using BoxDataLoader = std::unique_ptr<DATA_LOADER, DeleteDataLoader>;
+
+static bool compare_chips(PLR_DEV_INFO const& a, PLR_DEV_INFO const& b) {
+    static constexpr auto key = [](uint8_t type) -> int {
+        // Order PSG after YM2612. Keep PSG before 32X, because base console chips
+        // should come before expansions.
+        static_assert(DEVID_SN76496 < DEVID_YM2612, "PSG already after YM2612");
+        if (type == DEVID_SN76496) {
+            return (int) (DEVID_YM2612 << 8) + 1;
+        }
+
+        // Add more overrides as necessary.
+        return (int) (type << 8);
+    };
+    return key(a.type) < key(b.type);
+}
+
+/// Sort chips in a more natural order for end users.
+static void sort_chips(std::vector<PLR_DEV_INFO> & devices) {
+    std::stable_sort(devices.begin(), devices.end(), compare_chips);
+}
 
 struct Metadata {
     uint32_t player_type;
@@ -105,6 +126,7 @@ public:
 
         PlayerBase * engine = player->GetPlayer();
         engine->GetSongDeviceInfo(devices);
+        sort_chips(devices);
 
         std::vector<ChipMetadata> chips;
         std::vector<FlatChannelMetadata> flat_channels = {
@@ -190,13 +212,18 @@ struct RenderSettings {
 
     uint32_t loop_count;
 
-    /// In seconds.
+    /// The fadeout duration for looped songs. In seconds.
     float fade_duration = 4.0;
+    /// How long to keep playing after the last command, for unlooped songs. In seconds.
+    float unlooped_tail = 1.0;
 
     // TODO duration override?
 };
 
 struct RenderJobState {
+    /// Only shown for debugging purposes.
+    QString _name;
+
     QString _out_path;
 
     /// Implicitly shared, read-only.
@@ -221,18 +248,19 @@ public:  // Public for std::make_unique.
 
 public:
     static Result<std::unique_ptr<RenderJob>, QString> make(
+        QString name,
         QString out_path,
         QByteArray file_data,
         Metadata const& metadata,
         RenderSettings const& opt)
     {
-        std::unique_ptr<PlayerBase> engine;
+        std::unique_ptr<PlayerBase> engine_move;
 
         switch (metadata.player_type) {
-        case FCC_VGM: engine = std::make_unique<VGMPlayer>(); break;
-        case FCC_S98: engine = std::make_unique<S98Player>(); break;
-        case FCC_DRO: engine = std::make_unique<DROPlayer>(); break;
-        case FCC_GYM: engine = std::make_unique<GYMPlayer>(); break;
+        case FCC_VGM: engine_move = std::make_unique<VGMPlayer>(); break;
+        case FCC_S98: engine_move = std::make_unique<S98Player>(); break;
+        case FCC_DRO: engine_move = std::make_unique<DROPlayer>(); break;
+        case FCC_GYM: engine_move = std::make_unique<GYMPlayer>(); break;
         default:
             return Err(Backend::tr("Failed to render, unrecognized file type 0x%1")
                 .arg(QString::number(metadata.player_type, 16).toUpper()));
@@ -256,10 +284,6 @@ public:
 
         auto player = std::make_unique<PlayerA>();
 
-        // Register the correct playback engine. This saves memory compared to
-        // creating 4 different engines for each channel in the file.
-        player->RegisterPlayerEngine(engine.release());
-
         /* setup the player's output parameters and allocate internal buffers */
         if (player->SetOutputSettings(
             opt.sample_rate, CHANNEL_COUNT, BIT_DEPTH, BUFFER_LEN
@@ -269,26 +293,41 @@ public:
             ));
         }
 
-        /* set playback parameters */
-        {
-            PlayerA::Config pCfg = player->GetConfiguration();
-            pCfg.masterVol = opt.volume;
-            pCfg.loopCount = opt.loop_count;
-            pCfg.fadeSmpls = (uint32_t) ((float) opt.sample_rate * opt.fade_duration);
-            pCfg.endSilenceSmpls = 0;
-            pCfg.pbSpeed = 1.0;
-            player->SetConfiguration(pCfg);
-        }
+        // Register the correct playback engine. This saves memory compared to
+        // creating 4 different engines for each channel in the file.
+        player->RegisterPlayerEngine(engine_move.release());
 
+        // Load the file using the playback engine.
         status = player->LoadFile(loader.get());
         if (status) {
             return Err(Backend::tr("Failed to load file, error 0x%1")
                 .arg(format_hex_2(status)));
         }
 
-        PlayerBase * p_engine = player->GetPlayer();
+        PlayerBase * engine = player->GetPlayer();
+
+        bool is_song_looped = engine->GetLoopTicks() > 0;
+        uint32_t extra_nsamp;
+
+        /* set playback parameters */
+        {
+            PlayerA::Config cfg = player->GetConfiguration();
+            cfg.masterVol = opt.volume;
+            cfg.loopCount = is_song_looped ? opt.loop_count : 0;
+            cfg.fadeSmpls = is_song_looped
+                ? (uint32_t) ((float) opt.sample_rate * opt.fade_duration)
+                : 0u;
+            cfg.endSilenceSmpls = is_song_looped
+                ? 0u
+                : (uint32_t) ((float) opt.sample_rate * opt.unlooped_tail);
+            cfg.pbSpeed = 1.0;
+
+            extra_nsamp = cfg.fadeSmpls + cfg.endSilenceSmpls;
+            player->SetConfiguration(cfg);
+        }
+
         if (metadata.player_type == FCC_VGM) {
-            VGMPlayer* vgmplay = dynamic_cast<VGMPlayer *>(p_engine);
+            VGMPlayer* vgmplay = dynamic_cast<VGMPlayer *>(engine);
             release_assert(vgmplay);
             player->SetLoopCount(vgmplay->GetModifiedLoopCount(opt.loop_count));
         }
@@ -298,9 +337,15 @@ public:
         // PLR_DEV_ID(chip, instance) works before calling PlayerA::Start().)
         //
         // It's not necessary to call Start() before GetTotalTime() (but it is
-        // necessary to call it before converting to/from samples).
+        // necessary to call it before Tick2Sample()).
         player->Start();
 
+        /* figure out how many total frames we're going to render */
+        uint32_t render_nsamp =
+            engine->Tick2Sample(engine->GetTotalPlayTicks(player->GetLoopCount()))
+            + extra_nsamp;
+
+        // Mute all but one channel.
         if (opt.solo) {
             SoloSettings const& solo = *opt.solo;
 
@@ -323,27 +368,45 @@ public:
                         mute.chnMute[subchip_idx] = (~0u) ^ (1 << solo.chan_idx);
                     }
                 }
-                status = p_engine->SetDeviceMuting((uint32_t) chip_idx, mute);
+                status = engine->SetDeviceMuting((uint32_t) chip_idx, mute);
                 assert(status == 0);
             }
         }
 
-        auto max_time_s =
-            (int) (player->GetTotalTime(/*includeLoops=*/ 1) + opt.fade_duration);
-
         auto out = std::make_unique<RenderJob>(RenderJobState {
+            ._name = move(name),
             ._out_path = move(out_path),
             ._file_data = move(file_data),
             ._loader = move(loader),
             ._player = move(player),
         });
         // Progress range is [0..time in seconds].
-        out->_status.setProgressRange(0, max_time_s);
+        out->_status.setProgressRange(0, (int) (render_nsamp / opt.sample_rate));
+
+        // The initial progress value is already 0, but we need to call
+        // setProgressValue(0) so reportResult() doesn't increment the progress value.
+        out->_status.setProgressValue(0);
+
         return Ok(std::move(out));
     }
 
-    QFuture<QString> future() {
-        return _status.future();
+    void start_consume(QThreadPool * pool) {
+        // Based off https://invent.kde.org/qt/qt/qtbase/-/blob/kde/5.15/src/concurrent/qtconcurrentrunbase.h#L72-93.
+        // I'm not sure why you need to call setThreadPool or setRunnable, especially
+        // since Qt 6's QPromise (https://invent.kde.org/qt/qt/qtbase/-/blob/dev/src/corelib/thread/qpromise.h)
+        // sets neither.
+        _status.setThreadPool(pool);
+        _status.setRunnable(this);
+        _status.reportStarted();
+        pool->start(this);
+    }
+
+    RenderJobHandle future() {
+        return RenderJobHandle {
+            .name = _name,
+            .path = _out_path,
+            .future = _status.future(),
+        };
     }
 
 private:
@@ -360,35 +423,31 @@ private:
         auto writer = std::move(maybe_writer.value());
         writer->enable_stereo();
 
-        PlayerBase * engine = _player->GetPlayer();
-
-        /* figure out how many total frames we're going to render */
-        uint32_t render_nsamp = engine->Tick2Sample(engine->GetTotalPlayTicks(
-            _player->GetLoopCount()
-        ));
-
-        /* we only want to fade if there's a looping section. Assumption is
-         * if the VGM doesn't specify a loop, it's a song with an actual ending */
-        if(engine->GetLoopTicks()) {
-            render_nsamp += _player->GetConfiguration().fadeSmpls;
-        }
-
         uint32_t curr_samp = 0;
-        while (curr_samp < render_nsamp) {
+        int curr_progress = 0;
+
+        bool done = false;
+        while (!done) {
             if (_status.isCanceled()) {
-                _status.reportResult(Backend::tr("Cancelled by user"));
                 return;
             }
 
             std::fill(_buffer.begin(), _buffer.end(), 0);
 
-            /* default to BUFFER_LEN PCM frames unless we have under BUFFER_LEN remaining */
-            auto curr_frames = std::min(render_nsamp - curr_samp, BUFFER_LEN);
-
-            // Render audio. Pass buffer size in bytes.
-            _player->Render(
-                curr_frames * CHANNEL_COUNT * (BIT_DEPTH / 8), _buffer.data()
-            );
+            // Render audio.
+            //
+            // PlayerA::Render() takes buffer size in bytes, and returns bytes written.
+            // We convert it into frames written.
+            //
+            // On song end, PlayerA::Render() performs a short write and sets
+            // PlayerA::GetState() |= PLAYSTATE_FIN.
+            uint32_t curr_frames =
+                _player->Render(
+                    BUFFER_LEN * CHANNEL_COUNT * (BIT_DEPTH / 8), _buffer.data()
+                ) / CHANNEL_COUNT / (BIT_DEPTH / 8);
+            if (_player->GetState() & PLAYSTATE_FIN) {
+                done = true;
+            }
 
             // Write audio. Pass buffer size in samples.
             if (
@@ -399,8 +458,15 @@ private:
                 return;
             }
             curr_samp += curr_frames;
+
             // Set current time in seconds.
-            _status.setProgressValue((int) (curr_samp / sample_rate));
+            auto progress = (int) (curr_samp / sample_rate);
+            if (progress != curr_progress) {
+                // Only call setProgressValue() when progress has changed, to avoid
+                // unnecessary mutex locking.
+                _status.setProgressValue(progress);
+                curr_progress = progress;
+            }
         }
 
         if (auto err = writer->close(); !err.isEmpty()) {
@@ -414,7 +480,9 @@ public:
     void run() override {
         // Based off https://invent.kde.org/qt/qt/qtbase/-/blob/kde/5.15/src/concurrent/qtconcurrentrunbase.h#L95-121
         if (_status.isCanceled()) {
-            _status.reportResult(Backend::tr("Cancelled by user"));
+            // Ideally I'd report "Cancelled by user", but after QFuture::cancel() is
+            // called (and QFutureInterface::isCanceled() is set),
+            // QFutureInterface::reportResult() drops all values.
             _status.reportFinished();
             return;
         }
@@ -527,7 +595,7 @@ std::vector<RenderJobHandle> const& Backend::render_jobs() const {
 
 bool Backend::is_rendering() const {
     for (RenderJobHandle const& job : _render_jobs) {
-        if (!job.isFinished()) {
+        if (!job.future.isFinished()) {
             return true;
         }
     }
@@ -536,7 +604,7 @@ bool Backend::is_rendering() const {
 
 void Backend::cancel_render() {
     for (RenderJobHandle & job : _render_jobs) {
-        job.cancel();
+        job.future.cancel();
     }
 }
 
@@ -590,8 +658,9 @@ std::vector<QString> Backend::start_render(QString const& path) {
 
         auto settings = RENDER_SETTINGS;
         settings.solo = solo;
-        auto job =
-            RenderJob::make(move(channel_path), _file_data, *_metadata, settings);
+        auto job = RenderJob::make(
+            channel_name, move(channel_path), _file_data, *_metadata, settings
+        );
         if (job.is_err()) {
             errors.push_back(tr("Error rendering %1: %2")
                 .arg(channel_name, job.err_value()));
@@ -606,7 +675,7 @@ std::vector<QString> Backend::start_render(QString const& path) {
 
     for (auto & job : queued_jobs) {
         _render_jobs.push_back(job->future());
-        _render_thread_pool.start(job.release());
+        job.release()->start_consume(&_render_thread_pool);
     }
     return errors;
 }
