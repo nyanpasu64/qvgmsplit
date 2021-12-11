@@ -22,10 +22,10 @@ static constexpr uint32_t BYTES_PER_SAMPLE = sizeof(Wave_Writer::Amplitude);
 using stx::Ok, stx::Err;
 using std::move;
 
-[[nodiscard]] static QString write_data(Wave_Writer & self, void const* in, size_t size)
+[[nodiscard]] static QString write_data(QFile & file, void const* in, int64_t size)
 {
-    if (self._file.write((char const*) in, (int64_t) size) == -1) {
-        return self._file.errorString();
+    if (file.write((char const*) in, size) == -1) {
+        return file.errorString();
     }
     return {};
 }
@@ -67,7 +67,7 @@ static void set_le32( unsigned char p [4], unsigned n )
     h [0x20] = frame_size;
     set_le32( h + 0x28, data_size );
 
-    return write_data(self, h, sizeof h);
+    return write_data(self._file, h, sizeof h);
 }
 
 Wave_Writer::Wave_Writer(uint32_t sample_rate, QString const& path)
@@ -116,38 +116,17 @@ void Wave_Writer::enable_stereo()
     _chan_count = 2;
 }
 
-[[nodiscard]] QString Wave_Writer::write(Amplitude const* in, uint32_t remain)
+[[nodiscard]] QString Wave_Writer::write(Amplitude const* in, uint32_t nsamp)
 {
-    _sample_count += remain;
+    _sample_count += nsamp;
 
-    while ( remain )
-    {
-        static constexpr uint32_t BUF_SIZE = 4096;
-        unsigned char buf [BUF_SIZE];
-
-        auto const nsamp = std::min(BUF_SIZE / BYTES_PER_SAMPLE, remain);
-        remain -= nsamp;
-
-        /* Convert to little-endian */
-        {
-            unsigned char* out = buf;
-            Amplitude const* end = in + nsamp;
-            do
-            {
-                auto s = (uint32_t) *in++;
-                out [0] = (unsigned char) (s     );
-                out [1] = (unsigned char) (s >> 8);
-                out += 2;
-                static_assert(BYTES_PER_SAMPLE == 2);
-            }
-            while ( in != end );
-
-            if (
-                auto err = write_data(*this, buf, (size_t) (out - buf)); !err.isEmpty()
-            ) {
-                return err;
-            }
-        }
+    // This only works properly on little-endian CPUs, but is faster than chunking the
+    // input to convert to little endian.
+    if (
+        auto err = write_data(_file, in, (int64_t) nsamp * BYTES_PER_SAMPLE);
+        !err.isEmpty()
+    ) {
+        return err;
     }
     return {};
 }
