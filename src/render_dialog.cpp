@@ -257,9 +257,13 @@ void RenderDialog::update_status() {
     bool any_error = false;
     bool any_canceled = false;
     int curr_progress = 0;
+    int max_progress = 0;
 
     for (auto const& job : job_progress) {
         curr_progress += job.curr;
+        // Treat errored jobs as completed (max := curr).
+        max_progress += job.error ? job.curr : job.max;
+
         if (job.error) {
             any_error = true;
         }
@@ -272,6 +276,10 @@ void RenderDialog::update_status() {
     }
 
     // Set the progress bar.
+    if (max_progress == 0) {
+        curr_progress = max_progress = 1;
+    }
+    _progress->setMaximum(max_progress);
     _progress->setValue(curr_progress);
 
     // Update the job list.
