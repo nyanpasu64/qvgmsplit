@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "render_dialog.h"
 #include "gui_app.h"
 #include "lib/defer.h"
 #include "lib/layout_macros.h"
@@ -28,7 +29,6 @@
 #include <QFileInfo>
 #include <QTextCursor>
 #include <QTextDocument>
-#include <QTimer>
 
 #include <algorithm>  // std::rotate
 #include <set>
@@ -420,7 +420,6 @@ static QString errors_to_html(QString const& prefix, std::vector<QString> const&
 class MainWindowImpl final : public MainWindow {
 public:
     QErrorMessage _error_dialog{this};
-    QTimer _render_status_timer;
 
     ChipsModel _chips_model;
     ChannelsModel _channels_model;
@@ -528,16 +527,10 @@ public:
         connect(_move_up, &QPushButton::clicked, this, &MainWindowImpl::move_up);
         connect(_move_down, &QPushButton::clicked, this, &MainWindowImpl::move_down);
 
-        _render_status_timer.setInterval(200);
-        connect(
-            &_render_status_timer, &QTimer::timeout,
-            this, &MainWindowImpl::update_render_status);
-
         if (!path.isEmpty()) {
-            // Calls update_render_status().
             load_path(std::move(path));
         } else {
-            update_render_status();
+            update_file_status();
         }
     }
 
@@ -559,7 +552,7 @@ public:
         }
     }
 
-    void reload_title() {
+    void update_file_status() {
         _file_title = (!_file_path.isEmpty())
             ? QFileInfo(_file_path).fileName()
             : QString();
@@ -574,6 +567,9 @@ public:
 
         setWindowFilePath(_file_path);
         // setWindowModified(false);
+
+        // Disable render button when no file is open.
+        _render->setDisabled(_backend.channels().empty());
     }
 
     void move_up() {
@@ -633,21 +629,11 @@ public:
             // returning).
         }
 
-        _render_status_timer.start();
-        update_render_status();
-    }
-
-    bool update_render_status() {
-        bool const is_rendering = _backend.is_rendering();
-        _open->setDisabled(is_rendering);
-        _render->setDisabled(is_rendering || _backend.channels().empty());
-
-        // TODO show per-channel status and errors somewhere?
-
-        if (!is_rendering) {
-            _render_status_timer.stop();
+        if (_backend.is_rendering()) {
+            auto render = new RenderDialog(&_backend, this);
+            render->setAttribute(Qt::WA_DeleteOnClose);
+            render->show();
         }
-        return is_rendering;
     }
 
 // impl QWidget
@@ -716,8 +702,7 @@ StateTransaction::~StateTransaction() noexcept(false) {
 
     // Window title
     if (e & E::FileReplaced) {
-        _win->reload_title();
-        _win->update_render_status();
+        _win->update_file_status();
     }
 
     // Chips list
