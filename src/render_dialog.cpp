@@ -169,6 +169,7 @@ RenderDialog::RenderDialog(Backend *backend, MainWindow *parent_win)
     , _model(new JobModel(_backend, this))
 {
     setModal(true);
+    setWindowTitle(tr("Rendering..."));
     resize(700, 900);
 
     auto c = this;
@@ -309,6 +310,7 @@ void RenderDialog::update_status() {
         if (_close_on_end) {
             close();
         } else {
+            setWindowTitle(tr("Render Complete"));
             _cancel_close->setText(tr("Close"));
         }
     }
