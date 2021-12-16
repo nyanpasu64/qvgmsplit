@@ -87,7 +87,7 @@ struct Metadata {
 
     /// Master audio renders more slowly than individual channels, so make it take up
     /// more space in the overall progress bar.
-    int master_audio_time_multiplier;
+    float master_audio_time_multiplier;
 
 // impl
 public:
@@ -184,8 +184,8 @@ public:
         deal, since Master System .vgm files render quickly, and have ≤ channels than
         most people have CPU cores.
         */
-        int master_audio_time_multiplier =
-            std::max(1, qRound((float) flat_channels.size() / 2.f));
+        float master_audio_time_multiplier =
+            std::max(1.f, (float) flat_channels.size() / 2.f);
 
         return Ok(std::make_unique<Metadata>(Metadata {
             .player_type = engine->GetPlayerType(),
@@ -246,7 +246,7 @@ struct RenderJobState {
 
     QString _out_path;
 
-    int _time_multiplier;
+    float _time_multiplier;
 
     /// Implicitly shared, read-only.
     QByteArray _file_data;
@@ -367,7 +367,7 @@ public:
             engine->Tick2Sample(engine->GetTotalPlayTicks(player->GetLoopCount()))
             + extra_nsamp;
 
-        int time_multiplier = 1;
+        float time_multiplier = 1.f;
 
         // Mute all but one channel.
         if (opt.solo) {

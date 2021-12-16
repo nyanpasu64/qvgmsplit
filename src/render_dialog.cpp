@@ -26,7 +26,7 @@ static QString format_duration(int seconds) {
 struct ProgressState {
     int curr;
     int max;
-    int time_multiplier;
+    float time_multiplier;
     bool finished;
     bool error;
     bool canceled;
@@ -263,9 +263,11 @@ void RenderDialog::update_status() {
     int max_progress = 0;
 
     for (auto const& job : job_progress) {
-        curr_progress += job.time_multiplier * job.curr;
+        curr_progress += (int) ((double) job.time_multiplier * (double) job.curr);
+
         // Treat errored jobs as completed (max := curr).
-        max_progress += job.time_multiplier * (job.error ? job.curr : job.max);
+        int job_max = job.error ? job.curr : job.max;
+        max_progress += (int) ((double) job.time_multiplier * (double) job_max);
 
         if (job.error) {
             any_error = true;
