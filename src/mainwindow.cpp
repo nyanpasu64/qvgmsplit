@@ -546,7 +546,9 @@ public:
 
         if (!err.isEmpty()) {
             _error_dialog.close();
-            _error_dialog.showMessage(err);
+            _error_dialog.showMessage(
+                tr("Error loading file \"%1\":<br>%2").arg(file_path, err)
+            );
         } else {
             _file_path = file_path;
         }
