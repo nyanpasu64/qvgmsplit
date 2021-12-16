@@ -237,7 +237,7 @@ RenderDialog::RenderDialog(Backend *backend, MainWindow *parent_win)
         this, &RenderDialog::cancel_or_close);
 
     // Setup status timer.
-    _status_timer.setInterval(200);
+    _status_timer.setInterval(50);
     connect(
         &_status_timer, &QTimer::timeout,
         this, &RenderDialog::update_status);
