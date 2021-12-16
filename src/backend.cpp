@@ -132,9 +132,9 @@ public:
         std::vector<FlatChannelMetadata> flat_channels = {
             FlatChannelMetadata {
                 .name = "Master Audio",
-                .chip_idx = (uint8_t) -1,
-                .subchip_idx = (uint8_t) -1,
-                .chan_idx = (uint8_t) -1,
+                .maybe_chip_idx = (uint8_t) -1,
+                .subchip_idx = 0,
+                .chan_idx = 0,
                 .enabled = true,
             }
         };
@@ -160,7 +160,7 @@ public:
             ) {
                 flat_channels.push_back(FlatChannelMetadata {
                     .name = move(channel.name),
-                    .chip_idx = chip_idx,
+                    .maybe_chip_idx = chip_idx,
                     .subchip_idx = channel.subchip_idx,
                     .chan_idx = channel.chan_idx,
                     .enabled = true,
@@ -582,11 +582,13 @@ void Backend::sort_channels() {
     std::stable_sort(
         channels.begin(), channels.end(),
         [&chip_idx_to_order](FlatChannelMetadata const& a, FlatChannelMetadata const& b) {
-            if (a.chip_idx == NO_CHIP || b.chip_idx == NO_CHIP) {
-                return (a.chip_idx != NO_CHIP) < (b.chip_idx != NO_CHIP);
+            if (a.maybe_chip_idx == NO_CHIP || b.maybe_chip_idx == NO_CHIP) {
+                return (a.maybe_chip_idx != NO_CHIP) < (b.maybe_chip_idx != NO_CHIP);
             }
             // Both a.chip_idx and b.chip_idx are valid indices.
-            return chip_idx_to_order[a.chip_idx] < chip_idx_to_order[b.chip_idx];
+            return
+                chip_idx_to_order[a.maybe_chip_idx]
+                < chip_idx_to_order[b.maybe_chip_idx];
         });
 }
 
@@ -652,9 +654,9 @@ std::vector<QString> Backend::start_render(QString const& path) {
         QString channel_path;
 
         // For per-channel jobs, solo the channel.
-        if (channel.chip_idx != (uint8_t) -1) {
+        if (channel.maybe_chip_idx != (uint8_t) -1) {
             solo = SoloSettings {
-                .chip_idx = channel.chip_idx,
+                .chip_idx = channel.maybe_chip_idx,
                 .subchip_idx = channel.subchip_idx,
                 .chan_idx = channel.chan_idx,
             };

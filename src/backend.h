@@ -40,7 +40,7 @@ struct FlatChannelMetadata {
 
     /// Depends on the .vgm file. If -1, all chips/channels are rendered
     /// (master audio).
-    uint8_t chip_idx;
+    uint8_t maybe_chip_idx;
 
     /// Usually 0. YM2608's PSG channels have it set to 1.
     uint8_t subchip_idx;
