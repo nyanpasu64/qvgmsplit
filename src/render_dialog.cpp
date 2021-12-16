@@ -26,6 +26,7 @@ static QString format_duration(int seconds) {
 struct ProgressState {
     int curr;
     int max;
+    int time_multiplier;
     bool finished;
     bool error;
     bool canceled;
@@ -47,7 +48,7 @@ public:
         : QAbstractTableModel(parent)
         , _backend(backend)
         , _progress(
-            _backend->render_jobs().size(), ProgressState{0, 1, false, false, false}
+            _backend->render_jobs().size(), ProgressState{0, 1, 1, false, false, false}
         )
     {}
 
@@ -153,6 +154,7 @@ static std::vector<ProgressState> get_progress(Backend * backend) {
         progress.push_back(ProgressState {
             .curr = job.future.progressValue(),
             .max = job.future.progressMaximum(),
+            .time_multiplier = job.time_multiplier,
             .finished = job.future.isFinished(),
             .error = job.future.isResultReadyAt(0),
             .canceled = job.future.isCanceled(),
@@ -261,9 +263,9 @@ void RenderDialog::update_status() {
     int max_progress = 0;
 
     for (auto const& job : job_progress) {
-        curr_progress += job.curr;
+        curr_progress += job.time_multiplier * job.curr;
         // Treat errored jobs as completed (max := curr).
-        max_progress += job.error ? job.curr : job.max;
+        max_progress += job.time_multiplier * (job.error ? job.curr : job.max);
 
         if (job.error) {
             any_error = true;

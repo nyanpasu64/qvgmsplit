@@ -27,6 +27,7 @@ struct ChipMetadata {
 struct RenderJobHandle {
     QString name;
     QString path;
+    int time_multiplier;
     QFuture<QString> future;
 };
 
