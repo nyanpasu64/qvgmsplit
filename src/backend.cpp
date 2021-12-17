@@ -487,6 +487,15 @@ public:
             return;
         }
 
+        // Reduce the thread priority of the worker thread, to avoid slowing down the
+        // entire PC on Windows.
+        //
+        // Previously I tried backing up QThread::priority() and restoring once
+        // rendering finished. This didn't work since QThread::priority() returned
+        // QThread::InheritPriority, which can't be passed to QThread::setPriority().
+
+        QThread::currentThread()->setPriority(QThread::LowestPriority);
+
         try {
             callback();
         } catch (QException & e) {
