@@ -85,6 +85,10 @@ struct Metadata {
     std::vector<ChipMetadata> chips;
     std::vector<FlatChannelMetadata> flat_channels;
 
+    /// Master audio renders more slowly than individual channels, so make it take up
+    /// more space in the overall progress bar.
+    float master_audio_time_multiplier;
+
 // impl
 public:
     static Result<std::unique_ptr<Metadata>, QString> make(QByteArray file_data) {
@@ -132,9 +136,9 @@ public:
         std::vector<FlatChannelMetadata> flat_channels = {
             FlatChannelMetadata {
                 .name = "Master Audio",
-                .chip_idx = (uint8_t) -1,
-                .subchip_idx = (uint8_t) -1,
-                .chan_idx = (uint8_t) -1,
+                .maybe_chip_idx = (uint8_t) -1,
+                .subchip_idx = 0,
+                .chan_idx = 0,
                 .enabled = true,
             }
         };
@@ -160,7 +164,7 @@ public:
             ) {
                 flat_channels.push_back(FlatChannelMetadata {
                     .name = move(channel.name),
-                    .chip_idx = chip_idx,
+                    .maybe_chip_idx = chip_idx,
                     .subchip_idx = channel.subchip_idx,
                     .chan_idx = channel.chan_idx,
                     .enabled = true,
@@ -168,10 +172,26 @@ public:
             }
         }
 
+        /*
+        Calculate master_audio_time_multiplier based off the total number of channels,
+        not the number of channels enabled in a particular render.
+
+        In my testing with OPL3 and 32X .vgm files, rendering the master audio takes
+        around (total channels / 2) as long as rendering a single channel.
+
+        In Master System SN76489-like .vgm files, rendering the master audio is no
+        slower than a single channel, so this calculation is wrong. But it's not a big
+        deal, since Master System .vgm files render quickly, and have ≤ channels than
+        most people have CPU cores.
+        */
+        float master_audio_time_multiplier =
+            std::max(1.f, (float) flat_channels.size() / 2.f);
+
         return Ok(std::make_unique<Metadata>(Metadata {
             .player_type = engine->GetPlayerType(),
             .chips = move(chips),
             .flat_channels = move(flat_channels),
+            .master_audio_time_multiplier = master_audio_time_multiplier,
         }));
     }
 };
@@ -225,6 +245,8 @@ struct RenderJobState {
     QString _name;
 
     QString _out_path;
+
+    float _time_multiplier;
 
     /// Implicitly shared, read-only.
     QByteArray _file_data;
@@ -345,6 +367,8 @@ public:
             engine->Tick2Sample(engine->GetTotalPlayTicks(player->GetLoopCount()))
             + extra_nsamp;
 
+        float time_multiplier = 1.f;
+
         // Mute all but one channel.
         if (opt.solo) {
             SoloSettings const& solo = *opt.solo;
@@ -371,11 +395,14 @@ public:
                 status = engine->SetDeviceMuting((uint32_t) chip_idx, mute);
                 assert(status == 0);
             }
+        } else {
+            time_multiplier = metadata.master_audio_time_multiplier;
         }
 
         auto out = std::make_unique<RenderJob>(RenderJobState {
             ._name = move(name),
             ._out_path = move(out_path),
+            ._time_multiplier = time_multiplier,
             ._file_data = move(file_data),
             ._loader = move(loader),
             ._player = move(player),
@@ -405,6 +432,7 @@ public:
         return RenderJobHandle {
             .name = _name,
             .path = _out_path,
+            .time_multiplier = _time_multiplier,
             .future = _status.future(),
         };
     }
@@ -582,11 +610,13 @@ void Backend::sort_channels() {
     std::stable_sort(
         channels.begin(), channels.end(),
         [&chip_idx_to_order](FlatChannelMetadata const& a, FlatChannelMetadata const& b) {
-            if (a.chip_idx == NO_CHIP || b.chip_idx == NO_CHIP) {
-                return (a.chip_idx != NO_CHIP) < (b.chip_idx != NO_CHIP);
+            if (a.maybe_chip_idx == NO_CHIP || b.maybe_chip_idx == NO_CHIP) {
+                return (a.maybe_chip_idx != NO_CHIP) < (b.maybe_chip_idx != NO_CHIP);
             }
             // Both a.chip_idx and b.chip_idx are valid indices.
-            return chip_idx_to_order[a.chip_idx] < chip_idx_to_order[b.chip_idx];
+            return
+                chip_idx_to_order[a.maybe_chip_idx]
+                < chip_idx_to_order[b.maybe_chip_idx];
         });
 }
 
@@ -652,9 +682,9 @@ std::vector<QString> Backend::start_render(QString const& path) {
         QString channel_path;
 
         // For per-channel jobs, solo the channel.
-        if (channel.chip_idx != (uint8_t) -1) {
+        if (channel.maybe_chip_idx != (uint8_t) -1) {
             solo = SoloSettings {
-                .chip_idx = channel.chip_idx,
+                .chip_idx = channel.maybe_chip_idx,
                 .subchip_idx = channel.subchip_idx,
                 .chan_idx = channel.chan_idx,
             };

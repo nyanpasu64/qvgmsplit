@@ -26,6 +26,7 @@ static QString format_duration(int seconds) {
 struct ProgressState {
     int curr;
     int max;
+    float time_multiplier;
     bool finished;
     bool error;
     bool canceled;
@@ -47,7 +48,7 @@ public:
         : QAbstractTableModel(parent)
         , _backend(backend)
         , _progress(
-            _backend->render_jobs().size(), ProgressState{0, 1, false, false, false}
+            _backend->render_jobs().size(), ProgressState{0, 1, 1, false, false, false}
         )
     {}
 
@@ -153,6 +154,7 @@ static std::vector<ProgressState> get_progress(Backend * backend) {
         progress.push_back(ProgressState {
             .curr = job.future.progressValue(),
             .max = job.future.progressMaximum(),
+            .time_multiplier = job.time_multiplier,
             .finished = job.future.isFinished(),
             .error = job.future.isResultReadyAt(0),
             .canceled = job.future.isCanceled(),
@@ -169,6 +171,7 @@ RenderDialog::RenderDialog(Backend *backend, MainWindow *parent_win)
     , _model(new JobModel(_backend, this))
 {
     setModal(true);
+    setWindowTitle(tr("Rendering..."));
     resize(700, 900);
 
     auto c = this;
@@ -260,9 +263,11 @@ void RenderDialog::update_status() {
     int max_progress = 0;
 
     for (auto const& job : job_progress) {
-        curr_progress += job.curr;
+        curr_progress += (int) ((double) job.time_multiplier * (double) job.curr);
+
         // Treat errored jobs as completed (max := curr).
-        max_progress += job.error ? job.curr : job.max;
+        int job_max = job.error ? job.curr : job.max;
+        max_progress += (int) ((double) job.time_multiplier * (double) job_max);
 
         if (job.error) {
             any_error = true;
@@ -309,6 +314,7 @@ void RenderDialog::update_status() {
         if (_close_on_end) {
             close();
         } else {
+            setWindowTitle(tr("Render Complete"));
             _cancel_close->setText(tr("Close"));
         }
     }
