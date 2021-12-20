@@ -9,36 +9,15 @@
 class MainWindow;
 class Backend;
 
-class QPlainTextEdit;
-class QProgressBar;
-class QPushButton;
-class QTreeView;
-class JobModel;
-
 class RenderDialog : public QDialog {
+    Q_OBJECT
+
 private:
-    Backend * _backend;
-    MainWindow * _win;
-    JobModel * _model;
-
-    QProgressBar * _progress;
-    QTreeView * _job_list;
-    QPlainTextEdit * _error_log;
-    QPushButton * _cancel_close;
-
-    QTimer _status_timer;
-    bool _done = false;
-    bool _close_on_end = false;
+    // RenderDialog()
+    using QDialog::QDialog;
+    // This is public despite being marked as private. See
+    // https://stackoverflow.com/q/21015909.
 
 public:
-    RenderDialog(Backend * backend, MainWindow * parent_win);
-    ~RenderDialog();
-
-private:
-    void update_status();
-    void cancel_or_close();
-
-// impl QWidget
-protected:
-    void closeEvent(QCloseEvent * event) override;
+    static RenderDialog * make(Backend * backend, MainWindow * parent_win);
 };
