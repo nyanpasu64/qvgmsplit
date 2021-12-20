@@ -314,7 +314,9 @@ void RenderDialog::update_status() {
         if (_close_on_end) {
             close();
         } else {
-            setWindowTitle(tr("Render Complete"));
+            setWindowTitle(any_canceled
+                ? tr("Render Canceled")
+                : tr("Render Complete"));
             _cancel_close->setText(tr("Close"));
         }
     }
