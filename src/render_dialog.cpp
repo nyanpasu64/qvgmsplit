@@ -331,6 +331,27 @@ void RenderDialogImpl::update_status() {
 
     // Only use values calculated from job_progress. Don't perform more queries to
     // _backend, since you'll get an inconsistent view of rendering state.
+
+    /*
+    Currently RenderDialogImpl() calls update_status(), which updates _model. This
+    ensures that when RenderDialog is later shown, it displays the correct channel
+    durations from _model.
+
+    If the render fails immediately (eg. when saving to a read-only path), then when
+    RenderDialogImpl() calls update_status(), we cannot immediately create and show
+    _maybe_done_dialog. On Xfce, showing the dialog with a hidden parent causes the
+    dialog to appear at the wrong location.
+
+    Instead, skip creating _maybe_done_dialog until RenderDialogImpl() returns and the
+    caller shows RenderDialog.
+    */
+    if (all_finished && !isVisible()) {
+        // This technically results in a CPU-burning loop if you never show the render
+        // dialog, or hide it. I'll change this once it becomes a problem.
+        _status_timer.setInterval(0);
+        return;
+    }
+
     if (all_finished) {
         _is_done = true;
         _has_errors = any_error;
