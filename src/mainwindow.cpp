@@ -178,8 +178,21 @@ public:
         QByteArray encoded = data->data(format);
         QDataStream stream(&encoded, QIODevice::ReadOnly);
 
-        // Only allow dropping between rows.
-        if (!replace_index.isValid() && insert_row != -1) {
+        // When dragging past the end of the list, !replace_index.isValid() and
+        // insert_row == -1. Set insert_row = n to allow dragging to the end of the
+        // list.
+
+        // Only allow dropping between rows or after the last row, not onto a row.
+        if (!replace_index.isValid()) {
+            auto tx = _win->edit_unwrap();
+            auto & old_chips = chips_mut(tx);
+            auto n = old_chips.size();
+
+            if (insert_row == -1) {
+                insert_row = (int) n;
+            }
+            release_assert(0 <= insert_row && (size_t) insert_row <= n);
+
             std::set<int> dragged_rows;
             QMap<int, QVariant> _v;
 
@@ -189,10 +202,6 @@ public:
                 stream >> drag_row >> _c >> _v;
                 dragged_rows.insert(drag_row);
             }
-
-            auto tx = _win->edit_unwrap();
-            auto & old_chips = chips_mut(tx);
-            auto n = old_chips.size();
 
             QModelIndexList from, to;
             from.reserve((int) n);
