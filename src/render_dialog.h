@@ -6,7 +6,6 @@
 #include <memory>
 #include <vector>
 
-class MainWindow;
 class Backend;
 
 class RenderDialog : public QDialog {
@@ -19,5 +18,5 @@ private:
     // https://stackoverflow.com/q/21015909.
 
 public:
-    static RenderDialog * make(Backend * backend, MainWindow * parent_win);
+    static RenderDialog * make(Backend * backend, QWidget * parent = nullptr);
 };

@@ -186,7 +186,7 @@ private:
     QPointer<QMessageBox> _maybe_done_dialog;
 
 public:
-    RenderDialogImpl(Backend * backend, MainWindow * parent_win);
+    RenderDialogImpl(Backend * backend, QWidget * parent);
 
 private:
     /// May open done dialog, which calls `done_dialog_closed()`.
@@ -206,8 +206,8 @@ protected:
 };
 
 
-RenderDialogImpl::RenderDialogImpl(Backend *backend, MainWindow *parent_win)
-    : RenderDialog(parent_win)
+RenderDialogImpl::RenderDialogImpl(Backend * backend, QWidget * parent)
+    : RenderDialog(parent)
     , _backend(backend)
     , _model(new JobModel(_backend, this))
 {
@@ -490,6 +490,6 @@ void RenderDialogImpl::closeEvent(QCloseEvent * event) {
     }
 }
 
-RenderDialog * RenderDialog::make(Backend * backend, MainWindow * parent_win) {
-    return new RenderDialogImpl(backend, parent_win);
+RenderDialog * RenderDialog::make(Backend * backend, QWidget * parent) {
+    return new RenderDialogImpl(backend, parent);
 }
