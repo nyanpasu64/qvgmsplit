@@ -613,7 +613,7 @@ public:
         QString render_dir = QFileDialog::getExistingDirectory(
             this,
             tr("Render To Folder"),
-            orig_path.dir().absolutePath());
+            orig_path.dir().absoluteFilePath(orig_path.baseName()));
 
         if (render_dir.isEmpty()) {
             return;
