@@ -6,6 +6,7 @@
 
 #include <QBoxLayout>
 #include <QLabel>
+#include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
@@ -16,6 +17,8 @@
 
 #include <QDebug>
 #include <QFutureWatcher>
+#include <QKeyEvent>
+#include <QPointer>
 
 static QString format_duration(int seconds) {
     return QStringLiteral("%1:%2")
@@ -164,10 +167,48 @@ static std::vector<ProgressState> get_progress(Backend * backend) {
     return progress;
 }
 
-RenderDialog::RenderDialog(Backend *backend, MainWindow *parent_win)
-    : QDialog(parent_win)
+class RenderDialogImpl : public RenderDialog {
+private:
+    Backend * _backend;
+    JobModel * _model;
+
+    QProgressBar * _progress;
+    QTreeView * _job_list;
+    QPlainTextEdit * _error_log;
+    QPushButton * _cancel_close;
+
+    QTimer _status_timer;
+    bool _is_done = false;
+    bool _has_errors = false;
+    bool _close_on_end = false;
+
+    QPointer<QMessageBox> _maybe_cancel_dialog;
+    QPointer<QMessageBox> _maybe_done_dialog;
+
+public:
+    RenderDialogImpl(Backend * backend, QWidget * parent);
+
+private:
+    /// May open done dialog, which calls `done_dialog_closed()`.
+    void update_status();
+    void done_dialog_closed();
+
+    void cancel_close_clicked();
+
+    /// Opens cancel dialog, which may call `cancel_dialog_accepted()`.
+    void prompt_for_cancel();
+    void cancel_dialog_accepted();
+
+// impl QWidget
+protected:
+    void keyPressEvent(QKeyEvent * e) override;
+    void closeEvent(QCloseEvent * event) override;
+};
+
+
+RenderDialogImpl::RenderDialogImpl(Backend * backend, QWidget * parent)
+    : RenderDialog(parent)
     , _backend(backend)
-    , _win(parent_win)
     , _model(new JobModel(_backend, this))
 {
     setModal(true);
@@ -234,26 +275,24 @@ RenderDialog::RenderDialog(Backend *backend, MainWindow *parent_win)
     // Connect GUI.
     connect(
         _cancel_close, &QPushButton::clicked,
-        this, &RenderDialog::cancel_or_close);
+        this, &RenderDialogImpl::cancel_close_clicked);
 
     // Setup status timer.
-    _status_timer.setInterval(200);
+    _status_timer.setInterval(50);
     connect(
         &_status_timer, &QTimer::timeout,
-        this, &RenderDialog::update_status);
+        this, &RenderDialogImpl::update_status);
 
     _status_timer.start();
     update_status();
 }
-
-RenderDialog::~RenderDialog() = default;
 
 /// Called on a timer. Updates the progress table and checks if all render jobs are
 /// complete. If so, closes the dialog or switches the Cancel button to Close.
 ///
 /// Does not check for errors and append them to the text area. That's handled by
 /// QFutureWatcher.
-void RenderDialog::update_status() {
+void RenderDialogImpl::update_status() {
     auto job_progress = get_progress(_backend);
 
     bool all_finished = true;
@@ -292,8 +331,30 @@ void RenderDialog::update_status() {
 
     // Only use values calculated from job_progress. Don't perform more queries to
     // _backend, since you'll get an inconsistent view of rendering state.
+
+    /*
+    Currently RenderDialogImpl() calls update_status(), which updates _model. This
+    ensures that when RenderDialog is later shown, it displays the correct channel
+    durations from _model.
+
+    If the render fails immediately (eg. when saving to a read-only path), then when
+    RenderDialogImpl() calls update_status(), we cannot immediately create and show
+    _maybe_done_dialog. On Xfce, showing the dialog with a hidden parent causes the
+    dialog to appear at the wrong location.
+
+    Instead, skip creating _maybe_done_dialog until RenderDialogImpl() returns and the
+    caller shows RenderDialog.
+    */
+    if (all_finished && !isVisible()) {
+        // This technically results in a CPU-burning loop if you never show the render
+        // dialog, or hide it. I'll change this once it becomes a problem.
+        _status_timer.setInterval(0);
+        return;
+    }
+
     if (all_finished) {
-        _done = true;
+        _is_done = true;
+        _has_errors = any_error;
         _status_timer.stop();
 
         // If a render job isn't canceled (runs to completion or hits an error), set
@@ -307,6 +368,7 @@ void RenderDialog::update_status() {
                         .arg(curr_progress)
                         .arg(max_progress)
                 );
+                _has_errors = true;
             }
             _progress->setValue(max_progress);
         }
@@ -314,27 +376,120 @@ void RenderDialog::update_status() {
         if (_close_on_end) {
             close();
         } else {
-            setWindowTitle(tr("Render Complete"));
+            setWindowTitle(any_canceled
+                ? tr("Render Canceled")
+                : tr("Render Complete"));
             _cancel_close->setText(tr("Close"));
+
+            if (_maybe_cancel_dialog) {
+                _maybe_cancel_dialog->close();
+            }
+
+            // TODO make done dialog optional
+            if (!any_canceled) {
+                if (_has_errors) {
+                    _maybe_done_dialog = new QMessageBox(
+                        QMessageBox::Warning,
+                        tr("Render Completed With Errors"),
+                        tr("Render complete! Errors were encountered."),
+                        QMessageBox::Ok,
+                        this);
+                } else {
+                    _maybe_done_dialog = new QMessageBox(
+                        QMessageBox::Information,
+                        tr("Render Complete"),
+                        tr("Render complete!"),
+                        QMessageBox::Ok,
+                        this);
+                }
+
+                _maybe_done_dialog->setAttribute(Qt::WA_DeleteOnClose);
+                connect(
+                    _maybe_done_dialog, &QDialog::finished,
+                    this, &RenderDialogImpl::done_dialog_closed);
+
+                _maybe_done_dialog->show();
+            }
         }
     }
 }
 
-void RenderDialog::cancel_or_close() {
-    if (_done) {
+void RenderDialogImpl::done_dialog_closed() {
+    // When done dialog is closed, close render dialog if no errors occurred.
+    if (!_has_errors) {
         close();
-    } else {
-        _backend->cancel_render();
     }
 }
 
-void RenderDialog::closeEvent(QCloseEvent * event) {
-    if (!_done) {
-        event->ignore();
-        _backend->cancel_render();
-        _close_on_end = true;
+/*
+Currently:
+
+- Clicking X or pressing Esc when rendering is incomplete prompts the user to cancel
+  rendering. If the user accepts, all render jobs are cancelled and the render dialog
+  closes when all jobs finish.
+- Clicking Cancel cancels rendering without prompting, but leaves the render dialog
+  open. This is subject to change (I may make it behave like clicking X).
+- When all render jobs finish, the Cancel button changes to Close, and the "cancel
+  rendering" popup is closed if open. If no jobs were cancelled, a "render complete"
+  popup appears. If there were no errors, closing the popup closes the render dialog.
+*/
+
+void RenderDialogImpl::cancel_close_clicked() {
+    if (_is_done) {
+        close();
     } else {
-        // Technically unnecessary.
-        event->accept();
+        _backend->cancel_render();
+        // Don't close the dialog when rendering finishes.
     }
+}
+
+void RenderDialogImpl::prompt_for_cancel() {
+    _maybe_cancel_dialog = new QMessageBox(
+        QMessageBox::Question,
+        tr("Cancel Render"),
+        tr("Cancel current render?"),
+        QMessageBox::Yes | QMessageBox::No,
+        this);
+
+    _maybe_cancel_dialog->setAttribute(Qt::WA_DeleteOnClose);
+    connect(
+        _maybe_cancel_dialog, &QMessageBox::accepted,
+        this, &RenderDialogImpl::cancel_dialog_accepted);
+
+    _maybe_cancel_dialog->show();
+}
+
+void RenderDialogImpl::cancel_dialog_accepted() {
+    _backend->cancel_render();
+    _close_on_end = true;
+}
+
+void RenderDialogImpl::keyPressEvent(QKeyEvent * e) {
+    // Based on https://invent.kde.org/qt/qt/qtbase/-/blob/kde/5.15/src/widgets/dialogs/qdialog.cpp#L703.
+
+    // When the user presses Esc, QDialog::keyPressEvent() calls reject(), which
+    // bypasses our closeEvent() hook and closes the dialog immediately. To prevent
+    // this, we need to manually handle Esc keypresses with a replica of our
+    // closeEvent() logic.
+
+    if (e->matches(QKeySequence::Cancel)) {
+        if (!_is_done) {
+            prompt_for_cancel();
+        } else {
+            close();
+        }
+    } else {
+        QDialog::keyPressEvent(e);
+    }
+}
+
+void RenderDialogImpl::closeEvent(QCloseEvent * event) {
+    if (!_is_done) {
+        event->ignore();
+        prompt_for_cancel();
+    }
+}
+
+RenderDialog * RenderDialog::make(Backend * backend, QWidget * parent) {
+    return new RenderDialogImpl(backend, parent);
 }

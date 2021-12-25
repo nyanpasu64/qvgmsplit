@@ -641,7 +641,7 @@ public:
         }
 
         if (_backend.is_rendering()) {
-            auto render = new RenderDialog(&_backend, this);
+            auto render = RenderDialog::make(&_backend, this);
             render->setAttribute(Qt::WA_DeleteOnClose);
             render->show();
         }
