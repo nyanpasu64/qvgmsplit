@@ -610,11 +610,23 @@ public:
         auto orig_path = QFileInfo(_file_path);
         auto wav_name = orig_path.baseName() + QStringLiteral(".wav");
 
-        QString render_dir = QFileDialog::getExistingDirectory(
-            this,
-            tr("Render To Folder"),
-            orig_path.dir().absoluteFilePath(orig_path.baseName()));
-
+        QString render_dir;
+        {
+            QFileDialog dialog;
+            dialog.setAcceptMode(QFileDialog::AcceptSave);
+            dialog.setFileMode(QFileDialog::Directory);
+            dialog.setOption(QFileDialog::ShowDirsOnly);
+            qDebug() << orig_path.dir().absoluteFilePath(orig_path.baseName());
+            dialog.setDirectory(orig_path.dir().absoluteFilePath(orig_path.baseName()));
+            if (dialog.exec() != QDialog::Accepted) {
+                return;
+            }
+            auto selectedUrl = dialog.selectedUrls().value(0);
+            if (selectedUrl.isLocalFile() || selectedUrl.isEmpty())
+                render_dir = selectedUrl.toLocalFile();
+            else
+                render_dir = selectedUrl.toString();
+        }
         if (render_dir.isEmpty()) {
             return;
         }
