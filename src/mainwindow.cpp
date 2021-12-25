@@ -610,15 +610,15 @@ public:
         auto orig_path = QFileInfo(_file_path);
         auto wav_name = orig_path.baseName() + QStringLiteral(".wav");
 
-        QString render_path = QFileDialog::getSaveFileName(
+        QString render_dir = QFileDialog::getExistingDirectory(
             this,
-            tr("Render To"),
-            orig_path.dir().absoluteFilePath(wav_name),
-            tr("WAV files (*.wav);;All files (*)"));
+            tr("Render To Folder"),
+            orig_path.dir().absolutePath());
 
-        if (render_path.isEmpty()) {
+        if (render_dir.isEmpty()) {
             return;
         }
+        QString render_path = QDir(render_dir).filePath(wav_name);
 
         auto err = _backend.start_render(render_path);
         if (!err.empty()) {
