@@ -27,6 +27,7 @@
 #include <QErrorMessage>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QKeyEvent>
 #include <QTextCursor>
 #include <QTextDocument>
 
@@ -279,7 +280,8 @@ public:
     }
 
 // impl QWidget
-    QSize sizeHint() const {
+public:
+    QSize sizeHint() const override {
         return QSize(144, 144);
     }
 };
@@ -379,12 +381,61 @@ public:
 };
 
 class ChannelsView final : public QListView {
+    bool _space_pressed = false;
+
 public:
     // ChannelsView()
     explicit ChannelsView(QWidget *parent = nullptr)
         : QListView(parent)
     {
         setSelectionMode(QAbstractItemView::ExtendedSelection);
+    }
+
+// impl QWidget
+protected:
+    /// If Space is pressed, toggle the checked state of *every* selected row. By
+    /// default, QAbstractItemView only toggles the current row.
+    void keyPressEvent(QKeyEvent * event) override {
+        switch (event->key()) {
+        case Qt::Key_Space:
+        // no clue what Key_Select is, but it acts like Space and checks items.
+        case Qt::Key_Select:
+            _space_pressed = true;
+        }
+
+        // If Key_Space or Key_Select pressed, this calls edit() below.
+        QListView::keyPressEvent(event);
+
+        _space_pressed = false;
+    }
+
+    bool edit(QModelIndex const& index, EditTrigger trigger, QEvent * event) override {
+        if (_space_pressed) {
+            // If user presses Space when all selected items are checked, uncheck all.
+            // Otherwise check all selected items.
+
+            QAbstractItemModel * model = this->model();
+            bool all_checked = true;
+
+            auto const sels = selectedIndexes();
+            for (auto const& sel : sels) {
+                QVariant value = model->data(sel, Qt::CheckStateRole);
+                if (!value.isValid()) {
+                    return false;
+                }
+
+                Qt::CheckState state = static_cast<Qt::CheckState>(value.toInt());
+                all_checked &= state == Qt::Checked;
+            }
+
+            auto toggled_state = all_checked ? Qt::Unchecked : Qt::Checked;
+            for (auto const& sel : sels) {
+                model->setData(sel, toggled_state, Qt::CheckStateRole);
+            }
+            return true;
+        } else {
+            return QListView::edit(index, trigger, event);
+        }
     }
 };
 
