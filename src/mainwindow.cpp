@@ -27,6 +27,7 @@
 #include <QErrorMessage>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QKeyEvent>
 #include <QTextCursor>
 #include <QTextDocument>
 
@@ -279,7 +280,8 @@ public:
     }
 
 // impl QWidget
-    QSize sizeHint() const {
+public:
+    QSize sizeHint() const override {
         return QSize(144, 144);
     }
 };
@@ -379,12 +381,47 @@ public:
 };
 
 class ChannelsView final : public QListView {
+    bool _space_pressed = false;
+
 public:
     // ChannelsView()
     explicit ChannelsView(QWidget *parent = nullptr)
         : QListView(parent)
     {
         setSelectionMode(QAbstractItemView::ExtendedSelection);
+    }
+
+// impl QWidget
+protected:
+    /// If Space is pressed, toggle the checked state of *every* selected row. By
+    /// default, QAbstractItemView only toggles the current row.
+    void keyPressEvent(QKeyEvent * event) override {
+        switch (event->key()) {
+        case Qt::Key_Space:
+        // no clue what Key_Select is, but it acts like Space and checks items.
+        case Qt::Key_Select:
+            _space_pressed = true;
+        }
+
+        // If Key_Space or Key_Select pressed, this calls edit() below.
+        QListView::keyPressEvent(event);
+
+        _space_pressed = false;
+    }
+
+    bool edit(QModelIndex const& index, EditTrigger trigger, QEvent * event) override {
+        if (_space_pressed) {
+            bool out = false;
+            auto const sels = selectedIndexes();
+            for (auto const& sel_index : sels) {
+                // Non-short-circuiting. Calls edit() on every row, regardless if out
+                // is true.
+                out |= QListView::edit(sel_index, trigger, event);
+            }
+            return out;
+        } else {
+            return QListView::edit(index, trigger, event);
+        }
     }
 };
 
