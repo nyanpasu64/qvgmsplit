@@ -2,6 +2,7 @@
 #include "render_dialog.h"
 #include "gui_app.h"
 #include "lib/defer.h"
+#include "lib/enumerate.h"
 #include "lib/layout_macros.h"
 #include "lib/release_assert.h"
 #include "lib/unwrap.h"
@@ -28,6 +29,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QKeyEvent>
+#include <QSignalBlocker>
 #include <QTextCursor>
 #include <QTextDocument>
 
@@ -292,7 +294,8 @@ private:
 
 public:
     explicit ChannelsModel(Backend * backend, QObject *parent = nullptr)
-        : _backend(backend)
+        : QAbstractListModel(parent)
+        , _backend(backend)
     {}
 
     void begin_reset_model() {
@@ -306,10 +309,6 @@ public:
 private:
     std::vector<FlatChannelMetadata> const& get_channels() const {
         return _backend->channels();
-    }
-
-    std::vector<FlatChannelMetadata> & channels_mut() {
-        return _backend->channels_mut();
     }
 
 // impl QAbstractItemModel
@@ -344,83 +343,94 @@ public:
         case Qt::DisplayRole:
             return channels[row].numbered_name(row);
 
-        case Qt::CheckStateRole:
-            return channels[row].enabled ? Qt::Checked : Qt::Unchecked;
-
         default: return {};
         }
-    }
-
-    bool setData(QModelIndex const& index, QVariant const& value, int role) override {
-        if(!index.isValid()) {
-            return false;
-        }
-
-        if (role == Qt::CheckStateRole) {
-            auto & channels = channels_mut();
-
-            auto row = (size_t) index.row();
-            if (row >= channels.size()) {
-                return false;
-            }
-            channels[row].enabled = value == Qt::Checked;
-            emit dataChanged(index, index, {Qt::CheckStateRole});
-            return true;
-        }
-
-        return false;
-    }
-
-    Qt::ItemFlags flags(QModelIndex const& index) const override {
-        Qt::ItemFlags flags = QAbstractListModel::flags(index);
-        if (index.isValid()) {
-            flags |= Qt::ItemIsUserCheckable;
-        }
-        return flags;
     }
 };
 
 class ChannelsView final : public QListView {
-    bool _space_pressed = false;
+private:
+    Backend * _backend;
 
 public:
     // ChannelsView()
-    explicit ChannelsView(QWidget *parent = nullptr)
+    explicit ChannelsView(Backend * backend, QWidget *parent = nullptr)
         : QListView(parent)
+        , _backend(backend)
     {
-        setSelectionMode(QAbstractItemView::ExtendedSelection);
+        setSelectionMode(QAbstractItemView::MultiSelection);
     }
 
-// impl QWidget
-protected:
-    /// If Space is pressed, toggle the checked state of *every* selected row. By
-    /// default, QAbstractItemView only toggles the current row.
-    void keyPressEvent(QKeyEvent * event) override {
-        switch (event->key()) {
-        case Qt::Key_Space:
-        // no clue what Key_Select is, but it acts like Space and checks items.
-        case Qt::Key_Select:
-            _space_pressed = true;
+// impl QAbstractItemView
+public:
+    void setModel(QAbstractItemModel * model) override {
+        // Prior to the first call to setModel(), this is nullptr.
+        if (selectionModel()) {
+            disconnect(
+                selectionModel(), &QItemSelectionModel::selectionChanged,
+                this, &ChannelsView::on_selection_changed);
         }
 
-        // If Key_Space or Key_Select pressed, this calls edit() below.
-        QListView::keyPressEvent(event);
-
-        _space_pressed = false;
+        // Replaces selectionModel().
+        QListView::setModel(model);
+        release_assert(selectionModel());
+        connect(
+            selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, &ChannelsView::on_selection_changed);
     }
 
-    bool edit(QModelIndex const& index, EditTrigger trigger, QEvent * event) override {
-        if (_space_pressed) {
-            bool out = false;
-            auto const sels = selectedIndexes();
-            for (auto const& sel_index : sels) {
-                // Non-short-circuiting. Calls edit() on every row, regardless if out
-                // is true.
-                out |= QListView::edit(sel_index, trigger, event);
+private:
+    std::vector<FlatChannelMetadata> const& get_channels() const {
+        return _backend->channels();
+    }
+
+    std::vector<FlatChannelMetadata> & channels_mut() {
+        return _backend->channels_mut();
+    }
+
+public:
+    void reload_selection() {
+        auto const& channels = get_channels();
+
+        auto * model = this->model();
+        auto * sel_model = selectionModel();
+
+        auto b = QSignalBlocker(sel_model);
+        sel_model->clear();
+
+        for (auto const& [row, channel] : enumerate<int>(channels)) {
+            if (channel.enabled) {
+                sel_model->select(model->index(row, 0), QItemSelectionModel::Select);
             }
-            return out;
-        } else {
-            return QListView::edit(index, trigger, event);
+        }
+    }
+
+private:
+    void on_selection_changed(
+        QItemSelection const& selected, QItemSelection const& deselected
+    ) {
+        auto & channels = channels_mut();
+        {
+            auto inds = selected.indexes();
+            for (QModelIndex const& index : inds) {
+                auto row = (size_t) index.row();
+                release_assert(row < channels.size());
+                auto & channel = channels[row];
+
+                assert(!channel.enabled);
+                channel.enabled = true;
+            }
+        }
+        {
+            auto inds = deselected.indexes();
+            for (QModelIndex const& index : inds) {
+                auto row = (size_t) index.row();
+                release_assert(row < channels.size());
+                auto & channel = channels[row];
+
+                assert(channel.enabled);
+                channel.enabled = false;
+            }
         }
     }
 };
@@ -552,7 +562,7 @@ public:
             }
 
             l->addWidget(new QLabel(tr("Channel Select")), 0, 1);
-            {auto w = new ChannelsView;
+            {auto w = new ChannelsView(&_backend);
                 l->addWidget(w, 1, 1);
                 _channels_view = w;
 
@@ -769,6 +779,7 @@ StateTransaction::~StateTransaction() noexcept(false) {
             _win->_backend.sort_channels();
         }
         _win->_channels_model.end_reset_model();
+        _win->_channels_view->reload_selection();
     }
 }
 
