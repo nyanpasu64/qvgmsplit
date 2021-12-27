@@ -552,11 +552,24 @@ public:
             }
 
             l->addWidget(new QLabel(tr("Channel Select")), 0, 1);
-            {auto w = new ChannelsView;
-                l->addWidget(w, 1, 1);
-                _channels_view = w;
+            {
+                auto grid = l;
+                auto l = new QVBoxLayout;
+                grid->addLayout(l, 1, 1);
+                {l__w(ChannelsView);
+                    _channels_view = w;
 
-                w->setModel(&_channels_model);
+                    w->setModel(&_channels_model);
+                }
+                {l__l(QHBoxLayout);
+                    {l__w(QPushButton(tr("&Check All")));
+//                        _select_all = w;
+                    }
+                    {l__w(QPushButton(tr("&Uncheck All")));
+//                        _select_none = w;
+                    }
+                }
+
             }
         }
 
