@@ -80,6 +80,7 @@ std::vector<ChannelMetadata> get_chip_metadata(
         break;
     case DEVID_YM2608:
     case DEVID_YM2610:
+    {
         nchannel = 16;	// 6 FM + 6 ADPCM + 1 DeltaT + 3 AY8910
         ngroup = 3;
 
@@ -87,12 +88,19 @@ std::vector<ChannelMetadata> get_chip_metadata(
         group_names[0] = "FM Chn";
 
         channels_per_group[1] = 7;
-        group_names[1] = "PCM Chn";
-        channel_names[channels_per_group[0] + 6] = "Delta-T";
+        auto pcm_begin = channels_per_group[0];
+        channel_names[pcm_begin + 0] = "Bass Drum";
+        channel_names[pcm_begin + 1] = "Snare Drum";
+        channel_names[pcm_begin + 2] = "Top Cymbal";
+        channel_names[pcm_begin + 3] = "Hi-Hat";
+        channel_names[pcm_begin + 4] = "Tom Tom";
+        channel_names[pcm_begin + 5] = "Rim Shot";
+        channel_names[pcm_begin + 6] = "Delta-T";
 
         channels_per_group[2] = 3;
         group_names[2] = "SSG Chn";
         break;
+    }
     case DEVID_YMF262:
         nchannel = 23;	// 18 + 5
         channel_names[18] = "Bass Drum";
