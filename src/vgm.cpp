@@ -52,7 +52,7 @@ std::vector<ChannelMetadata> get_chip_metadata(
         if (chip_type == DEVID_Y8950)
         {
             nchannel = 15;
-            channel_names[14] = "Delta-T";
+            channel_names[14] = "ADPCM";
         }
         break;
     case DEVID_YM2612:
@@ -95,7 +95,7 @@ std::vector<ChannelMetadata> get_chip_metadata(
         channel_names[pcm_begin + 3] = "Hi-Hat";
         channel_names[pcm_begin + 4] = "Tom Tom";
         channel_names[pcm_begin + 5] = "Rim Shot";
-        channel_names[pcm_begin + 6] = "Delta-T";
+        channel_names[pcm_begin + 6] = "ADPCM";
 
         channels_per_group[2] = 3;
         group_names[2] = "SSG Chn";
