@@ -89,13 +89,19 @@ std::vector<ChannelMetadata> get_chip_metadata(
 
         channels_per_group[1] = 7;
         auto pcm_begin = channels_per_group[0];
-        channel_names[pcm_begin + 0] = "Bass Drum";
-        channel_names[pcm_begin + 1] = "Snare Drum";
-        channel_names[pcm_begin + 2] = "Top Cymbal";
-        channel_names[pcm_begin + 3] = "Hi-Hat";
-        channel_names[pcm_begin + 4] = "Tom Tom";
-        channel_names[pcm_begin + 5] = "Rim Shot";
-        channel_names[pcm_begin + 6] = "ADPCM";
+
+        if (chip_type == DEVID_YM2608) {
+            channel_names[pcm_begin + 0] = "Bass Drum";
+            channel_names[pcm_begin + 1] = "Snare Drum";
+            channel_names[pcm_begin + 2] = "Top Cymbal";
+            channel_names[pcm_begin + 3] = "Hi-Hat";
+            channel_names[pcm_begin + 4] = "Tom Tom";
+            channel_names[pcm_begin + 5] = "Rim Shot";
+            channel_names[pcm_begin + 6] = "ADPCM";
+        } else {
+            group_names[1] = "ADPCM-A";
+            channel_names[pcm_begin + 6] = "ADPCM-B";
+        }
 
         channels_per_group[2] = 3;
         group_names[2] = "SSG Chn";
