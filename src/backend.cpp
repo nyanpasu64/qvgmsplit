@@ -59,7 +59,12 @@ struct DeleteDataLoader {
 
 using BoxDataLoader = std::unique_ptr<DATA_LOADER, DeleteDataLoader>;
 
-static bool compare_chips(PLR_DEV_INFO const& a, PLR_DEV_INFO const& b) {
+struct DeviceIndexInfo {
+    uint8_t chip_idx;
+    PLR_DEV_INFO device;
+};
+
+static bool compare_chips(DeviceIndexInfo const& a, DeviceIndexInfo const& b) {
     static constexpr auto key = [](uint8_t type) -> int {
         // Order PSG after YM2612. Keep PSG before 32X, because base console chips
         // should come before expansions.
@@ -71,11 +76,11 @@ static bool compare_chips(PLR_DEV_INFO const& a, PLR_DEV_INFO const& b) {
         // Add more overrides as necessary.
         return (int) (type << 8);
     };
-    return key(a.type) < key(b.type);
+    return key(a.device.type) < key(b.device.type);
 }
 
 /// Sort chips in a more natural order for end users.
-static void sort_chips(std::vector<PLR_DEV_INFO> & devices) {
+static void sort_chips(std::vector<DeviceIndexInfo> & devices) {
     std::stable_sort(devices.begin(), devices.end(), compare_chips);
 }
 
@@ -126,10 +131,21 @@ public:
                 .arg(format_hex_2(status)));
         }
 
-        std::vector<PLR_DEV_INFO> devices;
-
         PlayerBase * engine = player->GetPlayer();
-        engine->GetSongDeviceInfo(devices);
+
+        std::vector<DeviceIndexInfo> devices;
+        {
+            std::vector<PLR_DEV_INFO> raw_devices;
+            engine->GetSongDeviceInfo(raw_devices);
+
+            devices.reserve(raw_devices.size());
+            for (auto const& [chip_idx, device] : enumerate<uint8_t>(raw_devices)) {
+                devices.push_back(DeviceIndexInfo {
+                    .chip_idx = chip_idx,
+                    .device = device,
+                });
+            }
+        }
         sort_chips(devices);
 
         std::vector<ChipMetadata> chips;
@@ -146,7 +162,7 @@ public:
         chips.reserve(devices.size());
         bool show_chip_name = devices.size() > 1;
 
-        for (auto const& [chip_idx, device] : enumerate<uint8_t>(devices)) {
+        for (auto const& [chip_idx, device] : devices) {
             constexpr UINT8 OPTS = 0x01;  // enable long names
             const char* chipName = SndEmu_GetDevName(device.type, OPTS, device.devCfg);
 #ifdef BACKEND_DEBUG
