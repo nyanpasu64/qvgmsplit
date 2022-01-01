@@ -688,9 +688,11 @@ std::vector<QString> Backend::start_render(QString const& path) {
                 .subchip_idx = channel.subchip_idx,
                 .chan_idx = channel.chan_idx,
             };
-            channel_path = QFileInfo(path)
-                .dir()
-                .absoluteFilePath(QStringLiteral("%1.wav").arg(channel_name));
+            auto info = QFileInfo(path);
+            channel_path = info.dir()
+                .absoluteFilePath(QStringLiteral("%1 - %2.wav").arg(
+                    info.baseName(), channel_name
+                ));
         } else {
             channel_path = path;
         }
