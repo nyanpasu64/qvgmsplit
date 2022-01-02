@@ -52,7 +52,7 @@ std::vector<ChannelMetadata> get_chip_metadata(
         if (chip_type == DEVID_Y8950)
         {
             nchannel = 15;
-            channel_names[14] = "Delta-T";
+            channel_names[14] = "ADPCM";
         }
         break;
     case DEVID_YM2612:
@@ -80,6 +80,7 @@ std::vector<ChannelMetadata> get_chip_metadata(
         break;
     case DEVID_YM2608:
     case DEVID_YM2610:
+    {
         nchannel = 16;	// 6 FM + 6 ADPCM + 1 DeltaT + 3 AY8910
         ngroup = 3;
 
@@ -87,12 +88,25 @@ std::vector<ChannelMetadata> get_chip_metadata(
         group_names[0] = "FM Chn";
 
         channels_per_group[1] = 7;
-        group_names[1] = "PCM Chn";
-        channel_names[channels_per_group[0] + 6] = "Delta-T";
+        auto pcm_begin = channels_per_group[0];
+
+        if (chip_type == DEVID_YM2608) {
+            channel_names[pcm_begin + 0] = "Bass Drum";
+            channel_names[pcm_begin + 1] = "Snare Drum";
+            channel_names[pcm_begin + 2] = "Top Cymbal";
+            channel_names[pcm_begin + 3] = "Hi-Hat";
+            channel_names[pcm_begin + 4] = "Tom Tom";
+            channel_names[pcm_begin + 5] = "Rim Shot";
+            channel_names[pcm_begin + 6] = "ADPCM";
+        } else {
+            group_names[1] = "ADPCM-A";
+            channel_names[pcm_begin + 6] = "ADPCM-B";
+        }
 
         channels_per_group[2] = 3;
         group_names[2] = "SSG Chn";
         break;
+    }
     case DEVID_YMF262:
         nchannel = 23;	// 18 + 5
         channel_names[18] = "Bass Drum";
@@ -213,10 +227,14 @@ std::vector<ChannelMetadata> get_chip_metadata(
     }
     size_t const chip_name_end = name.size();
 
-    uint8_t global_chan = 0;
-    auto format_channel_name = [&global_chan, &channel_names](
-        fmt::memory_buffer & out, std::string_view group_name, uint8_t chan_in_group
+    auto format_channel_name = [&channel_names](
+        fmt::memory_buffer & out,
+        std::string_view group_name,
+        uint8_t group_begin,
+        uint8_t chan_in_group
     ) {
+        uint8_t global_chan = group_begin + chan_in_group;
+
         if (channel_names[global_chan].empty()) {
             fmt::format_to(std::back_inserter(out),
                 "{} {}", group_name, 1 + chan_in_group);
@@ -224,7 +242,6 @@ std::vector<ChannelMetadata> get_chip_metadata(
             std::string_view name = channel_names[global_chan];
             out.append(name.data(), name.data() + name.size());
         }
-        global_chan++;
     };
 
     if (!ngroup) {
@@ -236,7 +253,7 @@ std::vector<ChannelMetadata> get_chip_metadata(
 
         for (UINT8 chan_idx = 0; chan_idx < nchannel; chan_idx ++) {
             name.resize(chip_name_end);
-            format_channel_name(name, "Channel", chan_idx);
+            format_channel_name(name, "Channel", 0, chan_idx);
 
             out.push_back(ChannelMetadata {
                 .subchip_idx = subchip_idx,
@@ -247,10 +264,15 @@ std::vector<ChannelMetadata> get_chip_metadata(
     } else {
         uint8_t chan_per_subchip[2] = {0, 0};
 
-        for (UINT8 group_idx = 0; group_idx < ngroup; group_idx++) {
+        auto process_group = [&](UINT8 group_idx) {
+            uint8_t group_begin = 0;
+            for (uint8_t i = 0; i < group_idx; i++) {
+                group_begin += channels_per_group[i];
+            }
+
             auto const nchan_in_group = channels_per_group[group_idx];
             if (nchan_in_group == 0) {
-                continue;
+                return;
             }
 
             uint8_t const subchip_idx = subchip_from_group[group_idx];
@@ -261,13 +283,30 @@ std::vector<ChannelMetadata> get_chip_metadata(
             {
                 name.resize(chip_name_end);
                 uint8_t chan_in_subchip = chan_per_subchip[subchip_idx]++;
-                format_channel_name(name, group_names[group_idx], chan_in_group);
+                format_channel_name(
+                    name, group_names[group_idx], group_begin, chan_in_group
+                );
 
                 out.push_back(ChannelMetadata {
                     .subchip_idx = subchip_idx,
                     .chan_idx = chan_in_subchip,
                     .name = std::string(name.begin(), name.size()),
                 });
+            }
+        };
+
+        // For YM2608, reorder SSG before rhythm and ADPCM.
+        if (chip_type == DEVID_YM2608 || chip_type == DEVID_YM2610) {
+            // FM
+            process_group(0);
+            // SSG
+            process_group(2);
+            // Rhythm/ADPCM
+            process_group(1);
+
+        } else {
+            for (UINT8 group_idx = 0; group_idx < ngroup; group_idx++) {
+                process_group(group_idx);
             }
         }
     }
