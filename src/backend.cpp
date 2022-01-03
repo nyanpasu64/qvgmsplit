@@ -21,6 +21,7 @@
 
 #include <stx/result.h>
 
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -151,7 +152,7 @@ public:
             constexpr UINT8 OPTS = 0x01;  // enable long names
             const char* chipName = SndEmu_GetDevName(device.type, OPTS, device.devCfg);
 #ifdef BACKEND_DEBUG
-            std::cerr << chipName << "\n";
+            qDebug() << chipName;
 #endif
 
             ChipId chip_id =
@@ -581,11 +582,12 @@ QString Backend::load_path(QString const& path) {
 
 #ifdef BACKEND_DEBUG
     for (auto const& metadata : _metadata->flat_channels) {
-        std::cerr
-            << (int) metadata.chip_idx << " "
-            << (int) metadata.subchip_idx << " "
-            << (int) metadata.chan_idx << " "
-            << metadata.name << "\n";
+        qDebug()
+            << QStringLiteral("0x%1")
+                .arg(metadata.maybe_chip_id, 8, 16, QLatin1Char('0'))
+            << metadata.subchip_idx
+            << metadata.chan_idx
+            << QString::fromStdString(metadata.name);
     }
 #endif
 
