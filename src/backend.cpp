@@ -34,6 +34,7 @@
 #include <cstdint>
 #include <iostream>
 #include <optional>
+#include <unordered_map>
 
 //#define BACKEND_DEBUG
 
@@ -136,7 +137,7 @@ public:
         std::vector<FlatChannelMetadata> flat_channels = {
             FlatChannelMetadata {
                 .name = "Master Audio",
-                .maybe_chip_idx = (uint8_t) -1,
+                .maybe_chip_id = NO_CHIP,
                 .subchip_idx = 0,
                 .chan_idx = 0,
                 .enabled = true,
@@ -146,16 +147,18 @@ public:
         chips.reserve(devices.size());
         bool show_chip_name = devices.size() > 1;
 
-        for (auto const& [chip_idx, device] : enumerate<uint8_t>(devices)) {
+        for (auto const& device : devices) {
             constexpr UINT8 OPTS = 0x01;  // enable long names
             const char* chipName = SndEmu_GetDevName(device.type, OPTS, device.devCfg);
 #ifdef BACKEND_DEBUG
             std::cerr << chipName << "\n";
 #endif
 
+            ChipId chip_id =
+                PLR_DEV_ID((uint32_t) device.type, (uint32_t) device.instance);
             chips.push_back(ChipMetadata {
                 .name = chipName,
-                .chip_idx = chip_idx,
+                .chip_id = chip_id,
             });
 
             for (
@@ -164,7 +167,7 @@ public:
             ) {
                 flat_channels.push_back(FlatChannelMetadata {
                     .name = move(channel.name),
-                    .maybe_chip_idx = chip_idx,
+                    .maybe_chip_id = chip_id,
                     .subchip_idx = channel.subchip_idx,
                     .chan_idx = channel.chan_idx,
                     .enabled = true,
@@ -211,8 +214,8 @@ QString FlatChannelMetadata::numbered_name(size_t row) const {
 }
 
 struct SoloSettings {
-    /// Depends on the .vgm file.
-    uint8_t chip_idx;
+    /// Encodes the chip type and which index it is.
+    ChipId chip_id;
 
     /// Usually 0. YM2608's PSG channels have it set to 1.
     uint8_t subchip_idx;
@@ -373,11 +376,10 @@ public:
         if (opt.solo) {
             SoloSettings const& solo = *opt.solo;
 
-            auto nchip = metadata.chips.size();
-            for (size_t chip_idx = 0; chip_idx < nchip; chip_idx++) {
+            for (ChipMetadata const& chip : metadata.chips) {
                 PLR_MUTE_OPTS mute{};
 
-                if (chip_idx != solo.chip_idx) {
+                if (chip.chip_id != solo.chip_id) {
                     mute.disable = 0xff;
                     // Probably unnecessary, but do it anyway.
                     mute.chnMute[0] = mute.chnMute[1] = ~0u;
@@ -392,7 +394,7 @@ public:
                         mute.chnMute[subchip_idx] = (~0u) ^ (1 << solo.chan_idx);
                     }
                 }
-                status = engine->SetDeviceMuting((uint32_t) chip_idx, mute);
+                status = engine->SetDeviceMuting(chip.chip_id, mute);
                 assert(status == 0);
             }
         } else {
@@ -600,23 +602,23 @@ std::vector<ChipMetadata> & Backend::chips_mut() {
 
 void Backend::sort_channels() {
     auto const& chips = _metadata->chips;
-    std::vector<uint8_t> chip_idx_to_order(chips.size());
+    std::unordered_map<ChipId, uint8_t> chip_id_to_order(chips.size());
     for (auto const& [i, chip] : enumerate<uint8_t>(chips)) {
-        chip_idx_to_order[chip.chip_idx] = i;
+        chip_id_to_order.insert({chip.chip_id, i});
     }
 
     auto & channels = _metadata->flat_channels;
 
     std::stable_sort(
         channels.begin(), channels.end(),
-        [&chip_idx_to_order](FlatChannelMetadata const& a, FlatChannelMetadata const& b) {
-            if (a.maybe_chip_idx == NO_CHIP || b.maybe_chip_idx == NO_CHIP) {
-                return (a.maybe_chip_idx != NO_CHIP) < (b.maybe_chip_idx != NO_CHIP);
+        [&chip_id_to_order](FlatChannelMetadata const& a, FlatChannelMetadata const& b) {
+            if (a.maybe_chip_id == NO_CHIP || b.maybe_chip_id == NO_CHIP) {
+                return (a.maybe_chip_id != NO_CHIP) < (b.maybe_chip_id != NO_CHIP);
             }
             // Both a.chip_idx and b.chip_idx are valid indices.
             return
-                chip_idx_to_order[a.maybe_chip_idx]
-                < chip_idx_to_order[b.maybe_chip_idx];
+                chip_id_to_order.at(a.maybe_chip_id)
+                < chip_id_to_order.at(b.maybe_chip_id);
         });
 }
 
@@ -682,9 +684,9 @@ std::vector<QString> Backend::start_render(QString const& path) {
         QString channel_path;
 
         // For per-channel jobs, solo the channel.
-        if (channel.maybe_chip_idx != (uint8_t) -1) {
+        if (channel.maybe_chip_id != NO_CHIP) {
             solo = SoloSettings {
-                .chip_idx = channel.maybe_chip_idx,
+                .chip_id = channel.maybe_chip_id,
                 .subchip_idx = channel.subchip_idx,
                 .chan_idx = channel.chan_idx,
             };

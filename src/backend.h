@@ -19,9 +19,12 @@ struct Metadata;
 // But I'm not sure how to best integrate it into C++. And QAbstractItemModel isn't
 // "best integrated", but worst. Maybe an ECS would do better?
 
+/// Obtained by calling PLR_DEV_ID(PLR_DEV_INFO::type, PLR_DEV_INFO::instance).
+using ChipId = uint32_t;
+
 struct ChipMetadata {
     std::string name;
-    uint8_t chip_idx;
+    ChipId chip_id;
 };
 
 struct RenderJobHandle {
@@ -34,14 +37,14 @@ struct RenderJobHandle {
 /// Uniquely identifies a channel in a .vgm file.
 /// The metadata used to mute a particular channel by setting
 /// PLR_MUTE_OPTS::chnMute[subchip_idx] |= 1u << chan_idx
-/// and calling SetDeviceMuting(chip_idx, muteOpts).
+/// and calling SetDeviceMuting(chip_id, muteOpts).
 struct FlatChannelMetadata {
     /// Includes chip and channel name.
     std::string name;
 
     /// Depends on the .vgm file. If -1, all chips/channels are rendered
     /// (master audio).
-    uint8_t maybe_chip_idx;
+    ChipId maybe_chip_id;
 
     /// Usually 0. YM2608's PSG channels have it set to 1.
     uint8_t subchip_idx;
@@ -56,7 +59,7 @@ struct FlatChannelMetadata {
     QString numbered_name(size_t row) const;
 };
 
-constexpr uint8_t NO_CHIP = (uint8_t) -1;
+constexpr ChipId NO_CHIP = (ChipId) -1;
 
 class Backend {
     Q_DECLARE_TR_FUNCTIONS(Backend)
