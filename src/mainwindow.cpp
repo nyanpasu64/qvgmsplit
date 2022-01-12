@@ -772,9 +772,15 @@ StateTransaction::~StateTransaction() noexcept(false) {
         _win->_chips_model.end_reset_model();
 
         // Highlight the first chip, which gets moved by the up/down buttons.
+        QModelIndex chip_0 = _win->_chips_model.index(0);
         _win->_chips_view->selectionModel()->select(
-            _win->_chips_model.index(0), QItemSelectionModel::ClearAndSelect
+            chip_0, QItemSelectionModel::ClearAndSelect
         );
+
+        // The Move Down button moves _chips_view->currentIndex(), not the selection.
+        // If _chips_view is not focused, selectionModel()->select() doesn't set the
+        // current index, so we need to do it manually for the Move Down button to work.
+        _win->_chips_view->setCurrentIndex(chip_0);
     }
 
     // Channels list
