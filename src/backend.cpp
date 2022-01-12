@@ -602,9 +602,11 @@ std::vector<ChipMetadata> & Backend::chips_mut() {
 
 void Backend::sort_channels() {
     auto const& chips = _metadata->chips;
-    std::unordered_map<ChipId, uint8_t> chip_id_to_order(chips.size());
+    std::unordered_map<ChipId, uint16_t> chip_id_to_order(chips.size() + 1);
+    chip_id_to_order.insert({NO_CHIP, 0});
+
     for (auto const& [i, chip] : enumerate<uint8_t>(chips)) {
-        chip_id_to_order.insert({chip.chip_id, i});
+        chip_id_to_order.insert({chip.chip_id, i + 1});
     }
 
     auto & channels = _metadata->flat_channels;
@@ -612,10 +614,6 @@ void Backend::sort_channels() {
     std::stable_sort(
         channels.begin(), channels.end(),
         [&chip_id_to_order](FlatChannelMetadata const& a, FlatChannelMetadata const& b) {
-            if (a.maybe_chip_id == NO_CHIP || b.maybe_chip_id == NO_CHIP) {
-                return (a.maybe_chip_id != NO_CHIP) < (b.maybe_chip_id != NO_CHIP);
-            }
-            // Both a.chip_idx and b.chip_idx are valid indices.
             return
                 chip_id_to_order.at(a.maybe_chip_id)
                 < chip_id_to_order.at(b.maybe_chip_id);
