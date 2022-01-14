@@ -105,6 +105,8 @@ set(PROJECT_SOURCES
     src/mainwindow.h
     src/render_dialog.cpp
     src/render_dialog.h
+    src/settings.cpp
+    src/settings.h
     src/vgm.cpp
     src/vgm.h
     src/wave_writer.cpp

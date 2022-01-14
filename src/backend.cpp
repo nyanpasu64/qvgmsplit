@@ -539,7 +539,8 @@ public:
 };
 
 Backend::Backend()
-    : _metadata(std::make_unique<Metadata>(Metadata {}))
+    : _settings(Settings::make())
+    , _metadata(std::make_unique<Metadata>(Metadata {}))
 {
 }
 

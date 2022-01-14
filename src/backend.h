@@ -1,5 +1,7 @@
 #pragma once
 
+#include "settings.h"
+
 #include <player/playera.hpp>
 
 #include <QCoreApplication>
@@ -67,6 +69,7 @@ class Backend {
     /// Whether the GUI is being updated in response to events.
     bool _during_update = false;
 
+    Settings _settings;
     QByteArray _file_data;
     std::unique_ptr<Metadata> _metadata;
     QThreadPool _render_thread_pool;
