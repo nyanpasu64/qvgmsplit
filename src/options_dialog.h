@@ -3,6 +3,7 @@
 #include <QDialog>
 
 class Backend;
+class MainWindow;
 
 class OptionsDialog : public QDialog {
     Q_OBJECT
@@ -13,6 +14,6 @@ protected:
     {}
 
 public:
-    static OptionsDialog * make(Backend * backend, QWidget * parent = nullptr);
+    static OptionsDialog * make(Backend * backend, MainWindow * parent_main);
 };
 

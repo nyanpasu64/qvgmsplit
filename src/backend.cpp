@@ -1,4 +1,5 @@
 #include "backend.h"
+#include "mainwindow.h"
 #include "lib/box_array.h"
 #include "lib/enumerate.h"
 #include "lib/format.h"
@@ -82,10 +83,13 @@ static void sort_chips(std::vector<PLR_DEV_INFO> & devices) {
 }
 
 struct Metadata {
+    // If zero, no file is loaded.
     uint32_t player_type;
 
     std::vector<ChipMetadata> chips;
     std::vector<FlatChannelMetadata> flat_channels;
+
+    uint32_t sample_rate;
 
     /// Master audio renders more slowly than individual channels, so make it take up
     /// more space in the overall progress bar.
@@ -93,7 +97,10 @@ struct Metadata {
 
 // impl
 public:
-    static Result<std::unique_ptr<Metadata>, QString> make(QByteArray file_data) {
+    /// Calls load_settings().
+    static Result<std::unique_ptr<Metadata>, QString> make(
+        QByteArray file_data, AppSettings const& app
+    ) {
         UINT8 status;
 
         auto loader = BoxDataLoader(MemoryLoader_Init(
@@ -191,12 +198,115 @@ public:
         float master_audio_time_multiplier =
             std::max(1.f, (float) flat_channels.size() / 2.f);
 
-        return Ok(std::make_unique<Metadata>(Metadata {
+        auto out = std::make_unique<Metadata>(Metadata {
             .player_type = engine->GetPlayerType(),
             .chips = move(chips),
             .flat_channels = move(flat_channels),
+            .sample_rate = 0,
             .master_audio_time_multiplier = master_audio_time_multiplier,
-        }));
+        });
+        // Destroy the PlayerA object before loading settings, to reduce peak RAM usage.
+        player.reset();
+
+        // This constructs a new PlayerA object. This is slower than optimal, but
+        // avoids separate codepaths for loading a file, and changing settings after
+        // opening a file, which may behave differently.
+        auto err = out->load_settings(file_data, app);
+        if (!err.isEmpty()) {
+            return Err(move(err));
+        }
+
+        return Ok(move(out));
+    }
+
+    bool is_file_loaded() const {
+        return this->player_type != 0;
+    }
+
+    /// If non-empty, holds error message.
+    [[nodiscard]] QString load_settings(
+        QByteArray const& file_data, AppSettings const& app
+    ) {
+        // Set this->sample_rate.
+        if (!is_file_loaded()) {
+            this->sample_rate = 0;
+        } else if (app.use_chip_rate) {
+            PlayerA player;
+
+            std::unique_ptr<PlayerBase> engine_move;
+
+            switch (player_type) {
+            case FCC_VGM: engine_move = std::make_unique<VGMPlayer>(); break;
+            case FCC_S98: engine_move = std::make_unique<S98Player>(); break;
+            case FCC_DRO: engine_move = std::make_unique<DROPlayer>(); break;
+            case FCC_GYM: engine_move = std::make_unique<GYMPlayer>(); break;
+            default:
+                return Backend::tr("Failed to load settings, unrecognized file type 0x%1")
+                    .arg(QString::number(player_type, 16).toUpper());
+            }
+
+            UINT8 status;
+
+            auto loader = BoxDataLoader(MemoryLoader_Init(
+                (UINT8 const*) file_data.data(), (UINT32) file_data.size()
+            ));
+            if (loader == nullptr) {
+                return Backend::tr("Failed to allocate MemoryLoader_Init");
+            }
+
+            DataLoader_SetPreloadBytes(loader.get(), 0x100);
+            status = DataLoader_Load(loader.get());
+            if (status) {
+                return Backend::tr("Failed to extract file, error 0x%1")
+                    .arg(format_hex_2(status));
+            }
+
+            // Register the correct playback engine. This saves memory compared to
+            // creating 4 different engines for each channel in the file.
+            player.RegisterPlayerEngine(engine_move.release());
+
+            // Load the file using the playback engine.
+            status = player.LoadFile(loader.get());
+            if (status) {
+                return Backend::tr("Failed to load file, error 0x%1")
+                    .arg(format_hex_2(status));
+            }
+            player.Start();
+
+            PlayerBase * engine = player.GetPlayer();
+            std::vector<PLR_DEV_INFO> devices;
+            engine->GetSongDeviceInfo(devices);
+            sort_chips(devices);
+
+#ifdef BACKEND_DEBUG
+            for (PLR_DEV_INFO const& device : devices) {
+                qDebug() << device.smplRate;
+            }
+#endif
+
+            bool done = false;
+            for (PLR_DEV_INFO const& device : devices) {
+                // Avoid writing WAV files with sampling rates above 100 KHz.
+                //
+                // TODO add an alternative mode for recording each channel with its
+                // exact sampling rate (except that 32X has variable sampling rate)?
+                //
+                // TODO add a setting toggle/integer for "maximum sampling rate to
+                // auto-detect"?
+                if (device.smplRate <= 100'000) {
+                    this->sample_rate = device.smplRate;
+                    done = true;
+                    break;
+                }
+            }
+            if (!done) {
+                this->sample_rate = app.sample_rate;
+            }
+        } else {
+            this->sample_rate = app.sample_rate;
+        }
+
+        return QString();
     }
 };
 
@@ -229,7 +339,7 @@ struct SoloSettings {
 struct RenderSettings {
     std::optional<SoloSettings> solo;
 
-    uint32_t sample_rate = 44100;
+    uint32_t sample_rate;
 
     /// Q15.16 signed floating point value. 0x1'0000 is 100% volume.
     int32_t volume = 0x1'0000;
@@ -544,6 +654,11 @@ Backend::Backend()
 {
 }
 
+Settings & Backend::settings_mut(StateTransaction & tx) {
+    tx.settings_changed();
+    return _settings;
+}
+
 Backend::~Backend() = default;
 
 QString Backend::load_path(QString const& path) {
@@ -572,7 +687,7 @@ QString Backend::load_path(QString const& path) {
     }
 
     {
-        auto result = Metadata::make(file_data);
+        auto result = Metadata::make(file_data, _settings.app_settings());
         if (result.is_err()) {
             return move(result.err_value());
         }
@@ -593,6 +708,13 @@ QString Backend::load_path(QString const& path) {
 #endif
 
     return {};
+}
+
+void Backend::reload_settings() {
+    QString err = _metadata->load_settings(_file_data, _settings.app_settings());
+
+    // Assert on debug builds.
+    assert(err.isEmpty());
 }
 
 std::vector<ChipMetadata> const& Backend::chips() const {
@@ -650,13 +772,6 @@ void Backend::cancel_render() {
     }
 }
 
-// TODO either move type to header, move to unique_ptr in header, or replace Backend
-// with a virtual base class.
-static const RenderSettings RENDER_SETTINGS {
-    .solo = {},
-    .loop_count = 2,
-};
-
 std::vector<QString> Backend::start_render(QString const& path) {
     if (is_rendering()) {
         return {tr("Cannot start render while render is active")};
@@ -698,8 +813,11 @@ std::vector<QString> Backend::start_render(QString const& path) {
             channel_path = path;
         }
 
-        auto settings = RENDER_SETTINGS;
-        settings.solo = solo;
+        auto settings = RenderSettings {
+            .solo = solo,
+            .sample_rate = _metadata->sample_rate,
+            .loop_count = 2,
+        };
         auto job = RenderJob::make(
             channel_name, move(channel_path), _file_data, *_metadata, settings
         );

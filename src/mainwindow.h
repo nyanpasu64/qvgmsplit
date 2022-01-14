@@ -17,6 +17,7 @@ enum class StateUpdateFlag : uint32_t {
     All = ~(uint32_t)0,
     ChipsEdited = 0x1,
     FileReplaced = 0x10,
+    SettingsChanged = 0x20,
 };
 Q_DECLARE_FLAGS(StateUpdateFlags, StateUpdateFlag)
 Q_DECLARE_OPERATORS_FOR_FLAGS(StateUpdateFlags)
@@ -62,6 +63,7 @@ public:
 
     void file_replaced();
     void chips_changed();
+    void settings_changed();
 };
 
 class MainWindow : public QMainWindow {

@@ -63,6 +63,7 @@ struct FlatChannelMetadata {
 
 constexpr ChipId NO_CHIP = (ChipId) -1;
 
+class StateTransaction;
 class Backend {
     Q_DECLARE_TR_FUNCTIONS(Backend)
 
@@ -80,16 +81,14 @@ public:
     Backend();
     ~Backend();
 
-    // TODO only expose through StateTransaction?
     Settings const& settings() const {
         return _settings;
     }
-    Settings & settings_mut() {
-        return _settings;
-    }
+    Settings & settings_mut(StateTransaction & tx);
 
     /// If non-empty, holds error message.
     [[nodiscard]] QString load_path(QString const& path);
+    void reload_settings();
 
     std::vector<ChipMetadata> const& chips() const;
     std::vector<ChipMetadata> & chips_mut();

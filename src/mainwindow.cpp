@@ -644,6 +644,12 @@ public:
 
         // Disable render button when no file is open.
         _render->setDisabled(_backend.channels().empty());
+
+        reload_settings();
+    }
+
+    void reload_settings() {
+        // TODO update status bar
     }
 
     void move_up() {
@@ -785,6 +791,14 @@ StateTransaction::~StateTransaction() noexcept(false) {
         _win->update_file_status();
     }
 
+    // Metadata (sampling rate, etc.)
+    if (e & E::FileReplaced) {
+        // we already switched files, don't reload settings
+    } else if (e & E::SettingsChanged) {
+        _win->_backend.reload_settings();
+        _win->reload_settings();
+    }
+
     // Chips list
     if (e & E::FileReplaced) {
         _win->_chips_model.end_reset_model();
@@ -835,4 +849,8 @@ void StateTransaction::chips_changed() {
         _win->_channels_model.begin_reset_model();
         _queued_updates |= E::ChipsEdited;
     }
+}
+
+void StateTransaction::settings_changed() {
+    _queued_updates |= E::SettingsChanged;
 }

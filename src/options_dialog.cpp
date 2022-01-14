@@ -1,4 +1,5 @@
 #include "options_dialog.h"
+#include "mainwindow.h"  // TODO move StateTransaction to Backend
 #include "backend.h"
 #include "lib/layout_macros.h"
 
@@ -12,6 +13,7 @@
 
 class OptionsDialogImpl : public OptionsDialog {
 private:
+    MainWindow * _main;
     Backend * _backend;
     AppSettings _app;
 
@@ -22,8 +24,9 @@ private:
     QPushButton * _cancel;
 
 public:
-    OptionsDialogImpl(Backend * backend, QWidget * parent)
-        : OptionsDialog(parent)
+    OptionsDialogImpl(Backend * backend, MainWindow * parent_main)
+        : OptionsDialog(parent_main)
+        , _main(parent_main)
         , _backend(backend)
         , _app(_backend->settings().app_settings())
     {
@@ -72,7 +75,8 @@ public:
 
     void ok() {
         // Perhaps factor out into apply()?
-        _backend->settings_mut().set_app_settings(_app);
+        auto tx = _main->edit_unwrap();
+        _backend->settings_mut(tx).set_app_settings(_app);
         accept();
     }
 
@@ -81,6 +85,6 @@ public:
     }
 };
 
-OptionsDialog * OptionsDialog::make(Backend * backend, QWidget * parent) {
-    return new OptionsDialogImpl(backend, parent);
+OptionsDialog * OptionsDialog::make(Backend * backend, MainWindow * parent_main) {
+    return new OptionsDialogImpl(backend, parent_main);
 }
