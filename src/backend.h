@@ -80,6 +80,14 @@ public:
     Backend();
     ~Backend();
 
+    // TODO only expose through StateTransaction?
+    Settings const& settings() const {
+        return _settings;
+    }
+    Settings & settings_mut() {
+        return _settings;
+    }
+
     /// If non-empty, holds error message.
     [[nodiscard]] QString load_path(QString const& path);
 

@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "render_dialog.h"
+#include "options_dialog.h"
 #include "gui_app.h"
 #include "lib/defer.h"
 #include "lib/layout_macros.h"
@@ -493,6 +494,8 @@ public:
     QAction * _render;
     QAction * _exit;
 
+    QAction * _options;
+
     QString _file_title;
     QString _file_path;
 
@@ -531,6 +534,11 @@ public:
                     _exit = a;
                 }
             }
+            {m__m(tr("&Tools"));
+                {m__action(tr("&Options"));
+                    _options = a;
+                }
+            }
         }
 
         {main__tb(QToolBar);
@@ -538,6 +546,8 @@ public:
 
             tb->addAction(_open);
             tb->addAction(_render);
+            tb->addSeparator();
+            tb->addAction(_options);
         }
 
         {main__central_c_l(QWidget, QGridLayout);
@@ -583,6 +593,8 @@ public:
 
         _exit->setShortcuts(QKeySequence::Quit);
         connect(_exit, &QAction::triggered, this, &MainWindowImpl::close);
+
+        connect(_options, &QAction::triggered, this, &MainWindowImpl::open_options);
 
         connect(_move_up, &QPushButton::clicked, this, &MainWindowImpl::move_up);
         connect(_move_down, &QPushButton::clicked, this, &MainWindowImpl::move_down);
@@ -696,6 +708,12 @@ public:
             render->setAttribute(Qt::WA_DeleteOnClose);
             render->show();
         }
+    }
+
+    void open_options() {
+        auto options = OptionsDialog::make(&_backend, this);
+        options->setAttribute(Qt::WA_DeleteOnClose);
+        options->show();
     }
 
 // impl QWidget
