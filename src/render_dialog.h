@@ -1,10 +1,6 @@
 #pragma once
 
 #include <QDialog>
-#include <QTimer>
-
-#include <memory>
-#include <vector>
 
 class Backend;
 
