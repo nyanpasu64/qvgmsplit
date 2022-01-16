@@ -666,8 +666,6 @@ std::vector<QString> Backend::start_render(QString const& path) {
     // The number of cores (or hyper-threads).
     int cores = QThread::idealThreadCount();
 
-    // TODO pick an optimal thread count, based on div(nchan, cores) and treating 0 and
-    // positive separately.
     _render_thread_pool.setMaxThreadCount(cores);
 
     std::vector<QString> errors;
