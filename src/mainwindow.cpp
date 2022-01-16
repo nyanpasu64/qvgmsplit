@@ -817,5 +817,4 @@ void StateTransaction::chips_changed() {
         _win->_channels_model.begin_reset_model();
         _queued_updates |= E::ChipsEdited;
     }
-
 }
