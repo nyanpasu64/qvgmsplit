@@ -19,6 +19,9 @@
 #include <QFutureWatcher>
 #include <QKeyEvent>
 #include <QPointer>
+#include <QTimer>
+
+#include <vector>
 
 static QString format_duration(int seconds) {
     return QStringLiteral("%1:%2")

@@ -78,7 +78,7 @@ public:
     ~Backend();
 
     /// If non-empty, holds error message.
-    QString load_path(QString const& path);
+    [[nodiscard]] QString load_path(QString const& path);
 
     std::vector<ChipMetadata> const& chips() const;
     std::vector<ChipMetadata> & chips_mut();
