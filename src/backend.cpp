@@ -745,6 +745,14 @@ void Backend::sort_channels() {
         });
 }
 
+bool Backend::is_file_loaded() const {
+    return _metadata->is_file_loaded();
+}
+
+uint32_t Backend::sample_rate() const {
+    return _metadata->sample_rate;
+}
+
 std::vector<FlatChannelMetadata> const& Backend::channels() const {
     return _metadata->flat_channels;
 }

@@ -94,6 +94,9 @@ public:
     std::vector<ChipMetadata> & chips_mut();
     void sort_channels();
 
+    bool is_file_loaded() const;
+    uint32_t sample_rate() const;
+
     /// Includes an extra entry for "Master Audio".
     std::vector<FlatChannelMetadata> const& channels() const;
     std::vector<FlatChannelMetadata> & channels_mut();

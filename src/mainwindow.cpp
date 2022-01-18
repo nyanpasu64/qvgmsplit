@@ -13,6 +13,7 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QPushButton>
+#include <QStatusBar>
 #include <QToolBar>
 
 // Model-view
@@ -490,6 +491,8 @@ public:
     QPushButton * _move_down;
     ChannelsView * _channels_view;
 
+    QLabel * _status;
+
     QAction * _open;
     QAction * _render;
     QAction * _exit;
@@ -584,6 +587,9 @@ public:
             }
         }
 
+        _status = new QLabel;
+        statusBar()->addWidget(_status);
+
         // Bind actions
         _open->setShortcuts(QKeySequence::Open);
         connect(_open, &QAction::triggered, this, &MainWindowImpl::on_open);
@@ -649,7 +655,12 @@ public:
     }
 
     void reload_settings() {
-        // TODO update status bar
+        if (_backend.is_file_loaded()) {
+            auto sample_rate = _backend.sample_rate();
+            _status->setText(tr("%1 Hz").arg(sample_rate));
+        } else {
+            _status->setText(tr("No file loaded"));
+        }
     }
 
     void move_up() {
