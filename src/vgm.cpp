@@ -125,6 +125,7 @@ std::vector<ChannelMetadata> get_chip_metadata(
         nchannel = 8;
         break;
     case DEVID_32X_PWM:
+        channel_names[0] = "";
         nchannel = 1;
         break;
     case DEVID_AY8910:
@@ -223,7 +224,6 @@ std::vector<ChannelMetadata> get_chip_metadata(
     fmt::memory_buffer name;
     if (show_chip_name) {
         name.append(chip_name.data(), chip_name.data() + chip_name.size());
-        name.push_back(' ');
     }
     size_t const chip_name_end = name.size();
 
@@ -235,11 +235,14 @@ std::vector<ChannelMetadata> get_chip_metadata(
     ) {
         uint8_t global_chan = group_begin + chan_in_group;
 
-        if (channel_names[global_chan].empty()) {
+        if (channel_names[global_chan].data() == nullptr) {
             fmt::format_to(std::back_inserter(out),
-                "{} {}", group_name, 1 + chan_in_group);
+                " {} {}", group_name, 1 + chan_in_group);
+        } else if (channel_names[global_chan].empty()) {
+            // Do nothing; keep chip name only.
         } else {
             std::string_view name = channel_names[global_chan];
+            out.push_back(' ');
             out.append(name.data(), name.data() + name.size());
         }
     };
