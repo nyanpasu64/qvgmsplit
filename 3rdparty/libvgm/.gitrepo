@@ -6,7 +6,7 @@
 [subrepo]
 	remote = https://github.com/ValleyBell/libvgm.git
 	branch = master
-	commit = 57713471eef1db49e84f39d4ee3ac83662f01316
-	parent = 28da25a38eb9dbe58cd3fb2fad21055f7f7acec5
+	commit = bf6d32e21729f856bdd7dc2ff77751fe8ce1b69e
+	parent = 76d7a91d45d5780e145cad7dabd42e3fb0cd4bc9
 	method = rebase
 	cmdver = 0.4.3
