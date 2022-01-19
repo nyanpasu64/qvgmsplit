@@ -151,9 +151,11 @@ std::vector<ChannelMetadata> get_chip_metadata(
         nchannel = 28;
         break;
     case DEVID_uPD7759:
+        channel_names[0] = "ADPCM";
         nchannel = 1;
         break;
     case DEVID_OKIM6258:
+        channel_names[0] = "ADPCM";
         nchannel = 1;
         break;
     case DEVID_OKIM6295:
