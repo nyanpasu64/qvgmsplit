@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "render_dialog.h"
+#include "options_dialog.h"
 #include "gui_app.h"
 #include "lib/defer.h"
 #include "lib/layout_macros.h"
@@ -12,6 +13,7 @@
 #include <QLabel>
 #include <QMenuBar>
 #include <QPushButton>
+#include <QStatusBar>
 #include <QToolBar>
 
 // Model-view
@@ -489,9 +491,13 @@ public:
     QPushButton * _move_down;
     ChannelsView * _channels_view;
 
+    QLabel * _status;
+
     QAction * _open;
     QAction * _render;
     QAction * _exit;
+
+    QAction * _options;
 
     QString _file_title;
     QString _file_path;
@@ -531,6 +537,11 @@ public:
                     _exit = a;
                 }
             }
+            {m__m(tr("&Tools"));
+                {m__action(tr("&Options"));
+                    _options = a;
+                }
+            }
         }
 
         {main__tb(QToolBar);
@@ -538,6 +549,8 @@ public:
 
             tb->addAction(_open);
             tb->addAction(_render);
+            tb->addSeparator();
+            tb->addAction(_options);
         }
 
         {main__central_c_l(QWidget, QGridLayout);
@@ -574,6 +587,9 @@ public:
             }
         }
 
+        _status = new QLabel;
+        statusBar()->addWidget(_status);
+
         // Bind actions
         _open->setShortcuts(QKeySequence::Open);
         connect(_open, &QAction::triggered, this, &MainWindowImpl::on_open);
@@ -584,6 +600,8 @@ public:
         _exit->setShortcuts(QKeySequence::Quit);
         connect(_exit, &QAction::triggered, this, &MainWindowImpl::close);
 
+        connect(_options, &QAction::triggered, this, &MainWindowImpl::open_options);
+
         connect(_move_up, &QPushButton::clicked, this, &MainWindowImpl::move_up);
         connect(_move_down, &QPushButton::clicked, this, &MainWindowImpl::move_down);
 
@@ -592,6 +610,11 @@ public:
         } else {
             update_file_status();
         }
+    }
+
+    void show_error(QString const& err) {
+        _error_dialog.close();
+        _error_dialog.showMessage(err);
     }
 
     void load_path(QString file_path) {
@@ -605,10 +628,7 @@ public:
         auto err = _backend.load_path(file_path);
 
         if (!err.isEmpty()) {
-            _error_dialog.close();
-            _error_dialog.showMessage(
-                tr("Error loading file \"%1\":<br>%2").arg(file_path, err)
-            );
+            show_error(tr("Error loading file \"%1\":<br>%2").arg(file_path, err));
         } else {
             _file_path = file_path;
         }
@@ -632,6 +652,17 @@ public:
 
         // Disable render button when no file is open.
         _render->setDisabled(_backend.channels().empty());
+
+        reload_settings();
+    }
+
+    void reload_settings() {
+        if (_backend.is_file_loaded()) {
+            auto sample_rate = _backend.sample_rate();
+            _status->setText(tr("%1 Hz").arg(sample_rate));
+        } else {
+            _status->setText(tr("No file loaded"));
+        }
     }
 
     void move_up() {
@@ -682,9 +713,7 @@ public:
             // created, when it's actually scheduled; these errors show up in
             // Backend::render_jobs()[].results().
 
-            _error_dialog.showMessage(
-                errors_to_html(tr("Errors starting render:"), err)
-            );
+            show_error(errors_to_html(tr("Errors starting render:"), err));
 
             // _backend.is_rendering() *should* be false, but just in case it's true,
             // start the timer and call update_render_status() anyway (instead of
@@ -696,6 +725,12 @@ public:
             render->setAttribute(Qt::WA_DeleteOnClose);
             render->show();
         }
+    }
+
+    void open_options() {
+        auto options = OptionsDialog::make(&_backend, this);
+        options->setAttribute(Qt::WA_DeleteOnClose);
+        options->show();
     }
 
 // impl QWidget
@@ -767,6 +802,20 @@ StateTransaction::~StateTransaction() noexcept(false) {
         _win->update_file_status();
     }
 
+    // Metadata (sampling rate, etc.)
+    if (e & E::FileReplaced) {
+        // we already switched files, don't reload settings
+    } else if (e & E::SettingsChanged) {
+        QString err = _win->_backend.reload_settings();
+        if (!err.isEmpty()) {
+            _win->show_error(
+                MainWindow::tr("Error applying settings:<br>%1").arg(err)
+            );
+        }
+
+        _win->reload_settings();
+    }
+
     // Chips list
     if (e & E::FileReplaced) {
         _win->_chips_model.end_reset_model();
@@ -817,4 +866,8 @@ void StateTransaction::chips_changed() {
         _win->_channels_model.begin_reset_model();
         _queued_updates |= E::ChipsEdited;
     }
+}
+
+void StateTransaction::settings_changed() {
+    _queued_updates |= E::SettingsChanged;
 }

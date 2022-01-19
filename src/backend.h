@@ -1,5 +1,7 @@
 #pragma once
 
+#include "settings.h"
+
 #include <player/playera.hpp>
 
 #include <QCoreApplication>
@@ -61,12 +63,14 @@ struct FlatChannelMetadata {
 
 constexpr ChipId NO_CHIP = (ChipId) -1;
 
+class StateTransaction;
 class Backend {
     Q_DECLARE_TR_FUNCTIONS(Backend)
 
     /// Whether the GUI is being updated in response to events.
     bool _during_update = false;
 
+    Settings _settings;
     QByteArray _file_data;
     std::unique_ptr<Metadata> _metadata;
     QThreadPool _render_thread_pool;
@@ -77,12 +81,22 @@ public:
     Backend();
     ~Backend();
 
+    Settings const& settings() const {
+        return _settings;
+    }
+    Settings & settings_mut(StateTransaction & tx);
+
     /// If non-empty, holds error message.
     [[nodiscard]] QString load_path(QString const& path);
+    /// If non-empty, holds error message.
+    [[nodiscard]] QString reload_settings();
 
     std::vector<ChipMetadata> const& chips() const;
     std::vector<ChipMetadata> & chips_mut();
     void sort_channels();
+
+    bool is_file_loaded() const;
+    uint32_t sample_rate() const;
 
     /// Includes an extra entry for "Master Audio".
     std::vector<FlatChannelMetadata> const& channels() const;
