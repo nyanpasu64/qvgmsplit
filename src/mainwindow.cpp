@@ -612,6 +612,11 @@ public:
         }
     }
 
+    void show_error(QString const& err) {
+        _error_dialog.close();
+        _error_dialog.showMessage(err);
+    }
+
     void load_path(QString file_path) {
         auto tx = edit_unwrap();
 
@@ -623,10 +628,7 @@ public:
         auto err = _backend.load_path(file_path);
 
         if (!err.isEmpty()) {
-            _error_dialog.close();
-            _error_dialog.showMessage(
-                tr("Error loading file \"%1\":<br>%2").arg(file_path, err)
-            );
+            show_error(tr("Error loading file \"%1\":<br>%2").arg(file_path, err));
         } else {
             _file_path = file_path;
         }
@@ -711,9 +713,7 @@ public:
             // created, when it's actually scheduled; these errors show up in
             // Backend::render_jobs()[].results().
 
-            _error_dialog.showMessage(
-                errors_to_html(tr("Errors starting render:"), err)
-            );
+            show_error(errors_to_html(tr("Errors starting render:"), err));
 
             // _backend.is_rendering() *should* be false, but just in case it's true,
             // start the timer and call update_render_status() anyway (instead of
@@ -806,7 +806,13 @@ StateTransaction::~StateTransaction() noexcept(false) {
     if (e & E::FileReplaced) {
         // we already switched files, don't reload settings
     } else if (e & E::SettingsChanged) {
-        _win->_backend.reload_settings();
+        QString err = _win->_backend.reload_settings();
+        if (!err.isEmpty()) {
+            _win->show_error(
+                MainWindow::tr("Error applying settings:<br>%1").arg(err)
+            );
+        }
+
         _win->reload_settings();
     }
 

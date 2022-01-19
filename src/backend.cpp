@@ -710,11 +710,8 @@ QString Backend::load_path(QString const& path) {
     return {};
 }
 
-void Backend::reload_settings() {
-    QString err = _metadata->load_settings(_file_data, _settings.app_settings());
-
-    // Assert on debug builds.
-    assert(err.isEmpty());
+QString Backend::reload_settings() {
+    return _metadata->load_settings(_file_data, _settings.app_settings());
 }
 
 std::vector<ChipMetadata> const& Backend::chips() const {

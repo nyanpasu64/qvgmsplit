@@ -88,7 +88,8 @@ public:
 
     /// If non-empty, holds error message.
     [[nodiscard]] QString load_path(QString const& path);
-    void reload_settings();
+    /// If non-empty, holds error message.
+    [[nodiscard]] QString reload_settings();
 
     std::vector<ChipMetadata> const& chips() const;
     std::vector<ChipMetadata> & chips_mut();
