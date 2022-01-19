@@ -661,7 +661,7 @@ Settings & Backend::settings_mut(StateTransaction & tx) {
 
 Backend::~Backend() = default;
 
-QString Backend::load_path(QString const& path) {
+QString Backend::load_path(StateTransaction & tx, QString const& path) {
     if (is_rendering()) {
         return tr("Cannot load path while rendering");
     }
@@ -691,6 +691,10 @@ QString Backend::load_path(QString const& path) {
         if (result.is_err()) {
             return move(result.err_value());
         }
+
+        // We must call tx.file_replaced() (begin resetting chip/channel models) before
+        // overwriting _metadata (which holds the chip/channel lists).
+        tx.file_replaced();
 
         _file_data = move(file_data);
         _metadata = move(result.value());
