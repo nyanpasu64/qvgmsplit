@@ -60,4 +60,8 @@ executable('qvgmsplit',
   'src/wave_writer.cpp',
   'src/wave_writer.h',
   install : true,
+  dependencies : [
+    vgm_audio, vgm_player, vgm_utils,
+    fmt, gsl, stx,
+  ]
 )
