@@ -1,7 +1,40 @@
 project('qvgmsplit', 'cpp',
   version : '0.1',
-  default_options : ['warning_level=3', 'cpp_std=c++14'],
+  default_options : ['warning_level=3', 'cpp_std=c++20'],
 )
+
+cmake = import('cmake')
+
+cmake_opt = cmake.subproject_options()
+# This doesn't actually set CMAKE_CXX_STANDARD, making it useless.
+cmake_opt.set_override_option('cpp_std', 'c++20')
+
+# CMake subprojects wrongly think they're top-level projects. See
+# https://github.com/mesonbuild/meson/issues/7102 for details.
+fmt_opt = cmake_opt
+fmt_opt.add_cmake_defines({'FMT_MASTER_PROJECT': false})
+fmt_proj = cmake.subproject('fmt', options: fmt_opt)
+fmt = fmt_proj.dependency('fmt')
+
+gsl_opt = cmake_opt
+gsl_opt.add_cmake_defines({'GSL_TEST': false})
+gsl_proj = cmake.subproject('GSL', options: gsl_opt)
+gsl = gsl_proj.dependency('GSL')
+
+stx_proj = cmake.subproject('STX', options: cmake_opt)
+stx = stx_proj.dependency('stx')
+
+libvgm_opt = cmake_opt
+libvgm_opt.add_cmake_defines({
+  'BUILD_TESTS': false,
+  'BUILD_PLAYER': false,
+  'BUILD_VGM2WAV': false,
+  'USE_SANITIZERS': false,
+})
+libvgm_proj = cmake.subproject('libvgm', options: libvgm_opt)
+vgm_audio = libvgm_proj.dependency('vgm-audio')
+vgm_player = libvgm_proj.dependency('vgm-player')
+vgm_utils = libvgm_proj.dependency('vgm-utils')
 
 executable('qvgmsplit',
   'src/backend.cpp',
