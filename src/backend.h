@@ -87,7 +87,7 @@ public:
     Settings & settings_mut(StateTransaction & tx);
 
     /// If non-empty, holds error message.
-    [[nodiscard]] QString load_path(QString const& path);
+    [[nodiscard]] QString load_path(StateTransaction & tx, QString const& path);
     /// If non-empty, holds error message.
     [[nodiscard]] QString reload_settings();
 

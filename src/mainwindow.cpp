@@ -605,10 +605,9 @@ public:
         connect(_move_up, &QPushButton::clicked, this, &MainWindowImpl::move_up);
         connect(_move_down, &QPushButton::clicked, this, &MainWindowImpl::move_down);
 
+        update_file_status();
         if (!path.isEmpty()) {
             load_path(std::move(path));
-        } else {
-            update_file_status();
         }
     }
 
@@ -620,12 +619,7 @@ public:
     void load_path(QString file_path) {
         auto tx = edit_unwrap();
 
-        // StateTransaction::file_replaced() must be called before the chips/channels
-        // change. Backend::load_path() overwrites the chips/channels, so we must call
-        // file_replaced() first.
-        tx.file_replaced();
-        // TODO make Backend::load_path() accept StateTransaction &?
-        auto err = _backend.load_path(file_path);
+        auto err = _backend.load_path(tx, file_path);
 
         if (!err.isEmpty()) {
             show_error(tr("Error loading file \"%1\":<br>%2").arg(file_path, err));
