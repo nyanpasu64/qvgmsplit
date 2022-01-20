@@ -35,6 +35,7 @@ libvgm_opt.add_cmake_defines({
 })
 libvgm_proj = cmake.subproject('libvgm', options: libvgm_opt)
 vgm_audio = libvgm_proj.dependency('vgm-audio')
+vgm_emu = libvgm_proj.dependency('vgm-emu')
 vgm_player = libvgm_proj.dependency('vgm-player')
 vgm_utils = libvgm_proj.dependency('vgm-utils')
 
@@ -67,7 +68,7 @@ executable('qvgmsplit',
   moc_files,
   dependencies : [
     qt5_dep,
-    vgm_audio, vgm_player, vgm_utils,
+    vgm_audio, vgm_emu, vgm_player, vgm_utils,
     fmt, gsl, stx,
   ],
   include_directories: inc,
