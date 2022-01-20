@@ -127,6 +127,7 @@ std::vector<ChannelMetadata> get_chip_metadata(
     case DEVID_32X_PWM:
         channel_names[0] = "";
         nchannel = 1;
+        show_chip_name = true;
         break;
     case DEVID_AY8910:
         nchannel = 3;
@@ -224,13 +225,18 @@ std::vector<ChannelMetadata> get_chip_metadata(
     out.reserve(nchannel);
 
     fmt::memory_buffer name;
+
+    // show_chip_name is initially true if more than 1 chip is present in a .vgm file,
+    // meaning their channels must be distinguished. It's also set to true for chips
+    // with empty channel names.
     if (show_chip_name) {
         name.append(chip_name.data(), chip_name.data() + chip_name.size());
     }
     size_t const chip_name_end = name.size();
 
+    /// name may be empty or contain chip name only. We append a channel name to it.
     auto format_channel_name = [&channel_names](
-        fmt::memory_buffer & out,
+        fmt::memory_buffer & name,
         std::string_view group_name,
         uint8_t group_begin,
         uint8_t chan_in_group
@@ -238,18 +244,28 @@ std::vector<ChannelMetadata> get_chip_metadata(
         uint8_t global_chan = group_begin + chan_in_group;
 
         if (channel_names[global_chan].data() == nullptr) {
-            fmt::format_to(std::back_inserter(out),
-                " {} {}", group_name, 1 + chan_in_group);
+            // No custom name present. Append default name (eg. "Channel 1" or
+            // "FM Chn 1").
+            if (name.size() > 0) {
+                name.push_back(' ');
+            }
+            fmt::format_to(std::back_inserter(name),
+                "{} {}", group_name, 1 + chan_in_group
+            );
         } else if (channel_names[global_chan].empty()) {
-            // Do nothing; keep chip name only.
+            // Custom name is empty. Do nothing, keep chip name only.
         } else {
-            std::string_view name = channel_names[global_chan];
-            out.push_back(' ');
-            out.append(name.data(), name.data() + name.size());
+            // Custom name is present. Append custom name.
+            std::string_view chan_name = channel_names[global_chan];
+            if (name.size() > 0) {
+                name.push_back(' ');
+            }
+            name.append(chan_name.data(), chan_name.data() + chan_name.size());
         }
     };
 
     if (!ngroup) {
+        // "Channel 1"
         uint8_t subchip_idx = 0;
         // I have no clue why the OPL4 uses mute mask index 1.
         if (chip_type == DEVID_YMF278B) {
@@ -267,6 +283,7 @@ std::vector<ChannelMetadata> get_chip_metadata(
             });
         }
     } else {
+        // "FM Chn 1", "SSG Chn 1", etc.
         uint8_t chan_per_subchip[2] = {0, 0};
 
         auto process_group = [&](UINT8 group_idx) {

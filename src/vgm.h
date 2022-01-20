@@ -22,6 +22,8 @@ struct ChannelMetadata {
     std::string name;
 };
 
+/// show_chip_name is set to true if more than 1 chip is present in a .vgm file,
+/// meaning their channels must be distinguished.
 std::vector<ChannelMetadata> get_chip_metadata(
     PLR_DEV_INFO const& device, bool show_chip_name
 );
