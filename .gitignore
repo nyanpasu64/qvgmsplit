@@ -71,3 +71,9 @@ Thumbs.db
 *.dll
 *.exe
 /CMakeLists.txt.user
+
+
+# Meson
+/subprojects/packagecache
+/subprojects/fmt-*
+/subprojects/GSL-*

@@ -9,18 +9,14 @@ cmake_opt = cmake.subproject_options()
 # This doesn't actually set CMAKE_CXX_STANDARD, making it useless.
 cmake_opt.set_override_option('cpp_std', 'c++20')
 
+fmt_proj = subproject('fmt')
+fmt = fmt_proj.get_variable('fmt_dep')
+
+gsl_proj = subproject('microsoft-gsl')
+gsl = gsl_proj.get_variable('microsoft_gsl_dep')
+
 # CMake subprojects wrongly think they're top-level projects. See
 # https://github.com/mesonbuild/meson/issues/7102 for details.
-fmt_opt = cmake_opt
-fmt_opt.add_cmake_defines({'FMT_MASTER_PROJECT': false})
-fmt_proj = cmake.subproject('fmt', options: fmt_opt)
-fmt = fmt_proj.dependency('fmt')
-
-gsl_opt = cmake_opt
-gsl_opt.add_cmake_defines({'GSL_TEST': false})
-gsl_proj = cmake.subproject('GSL', options: gsl_opt)
-gsl = gsl_proj.dependency('GSL')
-
 stx_proj = cmake.subproject('STX', options: cmake_opt)
 stx = stx_proj.dependency('stx')
 
