@@ -1,7 +1,7 @@
 This is an attempted port of qvgmsplit to meson.
 
 - Meson's Qt support is half-baked; all the community effort is pouring into CMake.
-- I get linking errors. I think Meson fails to link CMake targets to each other.
+- At first I got linking errors.
     - `project(vgm-player)` contains `target_link_libraries(${PROJECT_NAME} PRIVATE ${PLAYER_LIBS} vgm-emu vgm-utils)`, but `vgm-emu` isn't being linked.
     - `vgm-emu` is a private dependency of other libvgm CMake targets. If I omit it from qvgmsplit, both libvgm and qvgmsplit link fine in CMake (qvgmsplit arguably shouldn't), but both libvgm and qvgmsplit fail to link in Meson (libvgm arguably should):
 
