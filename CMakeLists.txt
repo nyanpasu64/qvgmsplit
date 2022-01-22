@@ -134,7 +134,7 @@ endif()
 target_compile_options(qvgmsplit PRIVATE "${options}")
 target_link_libraries(qvgmsplit PRIVATE
     ${Qt}::Widgets
-    vgm-audio vgm-player vgm-utils
+    vgm-emu vgm-player vgm-utils
     fmt GSL stx
 )
 
