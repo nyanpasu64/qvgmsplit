@@ -72,6 +72,9 @@ find_package(${Qt} COMPONENTS Widgets REQUIRED)
 add_subdirectory("3rdparty/fmt")
 add_subdirectory("3rdparty/GSL")
 
+# vgm-audio fails to build with Clang on Windows, using either mingw or vc headers.
+# So skip building it since we don't use it.
+set(BUILD_LIBAUDIO FALSE CACHE BOOL "")
 set(BUILD_TESTS FALSE CACHE BOOL "")
 set(BUILD_PLAYER FALSE CACHE BOOL "")
 set(BUILD_VGM2WAV FALSE CACHE BOOL "")
