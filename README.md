@@ -8,7 +8,7 @@ This program renders audio using ValleyBell's [libvgm](https://github.com/Valley
 
 ## Install
 
-On Windows, download a release from [Releases](https://github.com/nyanpasu64/qvgmsplit/releases) and extract it to a folder. To instead download the latest nightly build, visit [nightly.link](https://nightly.link/nyanpasu64/qvgmsplit/workflows/windows-clang-vcpkg.yaml/master), then download and extract a "Release-exe" .zip file. If you are logged into GitHub, you can view and download nightly and PR builds in [Actions](https://github.com/nyanpasu64/qvgmsplit/actions).
+On Windows, download a release <!--TODO document what--> from [Releases](https://github.com/nyanpasu64/qvgmsplit/releases) and extract it to a folder. To instead download the latest nightly build, visit [nightly.link](https://nightly.link/nyanpasu64/qvgmsplit/workflows/windows-clang-vcpkg.yaml/master), then download and extract a "Release-exe" .zip file. If you are logged into GitHub, you can view and download nightly and PR builds in [Actions](https://github.com/nyanpasu64/qvgmsplit/actions).
 
 On other platforms, you currently have to build qvgmsplit yourself. qvgmsplit depends on a recent C++ compiler, Qt, and zlib. zlib can be installed from Linux/MSYS2 package managers or vcpkg. I do not recommend installing Qt from vcpkg (which compiles it from source, a very slow process); Qt can be installed from Linux/MSYS2 package managers, the Qt web installer, or aqtinstall.
 
