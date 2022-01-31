@@ -50,6 +50,7 @@ static QString help_text(QCommandLineParser & parser) {
 
 struct Arguments {
     QString filename;
+    bool exit_immediately;
 
     /// May exit if invalid arguments, --help, or --version is passed.
     [[nodiscard]]
@@ -60,6 +61,11 @@ struct Arguments {
         parser.addHelpOption();
         parser.addVersionOption();
         parser.addPositionalArgument("FILE", gtr("main", ".vgm file to open."));
+
+        // Only used for CI testing, to ensure the .exe loads properly.
+        auto exit_immediately = QCommandLineOption("exit-immediately");
+        exit_immediately.setFlags(QCommandLineOption::HiddenFromHelp);
+        parser.addOption(exit_immediately);
 
         // TODO sampling rate, loop count, etc.
 
@@ -86,7 +92,7 @@ struct Arguments {
             abort();
         }
 
-        Arguments out;
+        Arguments out{};
         auto positional = parser.positionalArguments();
         if (0 < positional.size()) {
             out.filename = positional[0];
@@ -94,6 +100,8 @@ struct Arguments {
         if (1 < positional.size()) {
             bail_help(parser, gtr("main", "Too many command-line arguments, expected FILE"));
         }
+
+        out.exit_immediately = parser.isSet(exit_immediately);
 
         return out;
     }
@@ -110,5 +118,8 @@ int main(int argc, char *argv[]) {
 
     auto w = MainWindow::new_with_path(arg.filename);
     w->show();
+    if (arg.exit_immediately) {
+        QMetaObject::invokeMethod(&a, &QCoreApplication::quit, Qt::QueuedConnection);
+    }
     return a.exec();
 }

@@ -72,6 +72,9 @@ find_package(${Qt} COMPONENTS Widgets REQUIRED)
 add_subdirectory("3rdparty/fmt")
 add_subdirectory("3rdparty/GSL")
 
+# vgm-audio fails to build with Clang on Windows, using either mingw or vc headers.
+# So skip building it since we don't use it.
+set(BUILD_LIBAUDIO FALSE CACHE BOOL "")
 set(BUILD_TESTS FALSE CACHE BOOL "")
 set(BUILD_PLAYER FALSE CACHE BOOL "")
 set(BUILD_VGM2WAV FALSE CACHE BOOL "")
@@ -143,6 +146,35 @@ set_target_properties(qvgmsplit PROPERTIES
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
 )
+
+# Generate .pdb files for release MSVC builds (https://stackoverflow.com/a/57479289)
+# The majority of end-user crashes happen in release builds,
+# and debugging their memory dumps is difficult without symbols.
+# So generate symbols to aid debugging.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi")
+
+    # Tell linker to include symbol data
+    set_target_properties(qvgmsplit PROPERTIES
+        LINK_FLAGS "/INCREMENTAL:NO /DEBUG /OPT:REF /OPT:ICF"
+    )
+
+    # Set file name & location
+    set_target_properties(qvgmsplit PROPERTIES
+        COMPILE_PDB_NAME qvgmsplit
+        COMPILE_PDB_OUTPUT_DIR ${CMAKE_BINARY_DIR}
+    )
+endif()
+
+# Generate .pdb files for release Windows Clang builds.
+# If you're using MinGW Clang, you should remove this line to reduce binary size.
+if(
+    WIN32
+    AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
+    AND CMAKE_BUILD_TYPE STREQUAL "Release"
+)
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -g")
+endif()
 
 if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(qvgmsplit)

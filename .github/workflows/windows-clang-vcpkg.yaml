@@ -1,0 +1,81 @@
+name: Windows Clang vcpkg
+
+on:
+  push:
+    branches: 'master'
+    tags: 'v*.*.*'
+    paths-ignore:
+      - '**.md'
+      - '**.txt'
+      - '!**/CMakeLists.txt'
+      - 'LICENSE'
+      - '.gitignore'
+  pull_request:
+    branches: master
+    paths-ignore:
+      - '**.md'
+      - '**.txt'
+      - '!**/CMakeLists.txt'
+      - 'LICENSE'
+      - '.gitignore'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        CONFIGURATION: [Debug, Release]
+      fail-fast: false
+    runs-on: windows-2022
+    env:
+      CONFIGURATION: ${{ matrix.CONFIGURATION }}
+      VCPKG_DEFAULT_TRIPLET: x64-windows
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v2
+      - name: Identify pull request
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          echo "PR_NAME=-pr${{ github.event.number }}-${{ github.head_ref }}" >> $Env:GITHUB_ENV
+      - name: Install dependencies
+        run: |
+          choco install ninja &
+          vcpkg install zlib
+          Get-Job | Wait-Job
+
+          #gcm vcpkg (C:\vcpkg)
+          #clang --version (C:\Program Files\LLVM\bin, 13.0.0)
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v2.14.0
+        with:
+          version: "5.15.2"
+          # archives: "qtbase qttools" (only supported on master, but that lacks a
+          # prebuilt .js file and can't be used: https://github.com/jurplel/install-qt-action/issues/2)
+      - name: CI-Build
+        run: |
+          mkdir build
+          cd build
+          cmake .. `
+            -D CMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake `
+            -D CMAKE_C_COMPILER=clang `
+            -D CMAKE_CXX_COMPILER=clang++ `
+            -DCMAKE_BUILD_TYPE=${{ matrix.CONFIGURATION }} `
+            -G Ninja
+          ninja
+      - name: Package artifact
+        run: |
+          py -3 ci/build.py archive
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: qvgmsplit-build${{ github.run_number }}${{ env.PR_NAME }}-${{ matrix.CONFIGURATION }}-exe
+          path: archive-root/
+      - name: Test app to ensure it runs
+        run: |
+          archive-root/qvgmsplit --exit-immediately
+      - name: Upload .pdb symbols
+        uses: actions/upload-artifact@v2
+        with:
+          name: qvgmsplit-build${{ github.run_number }}${{ env.PR_NAME }}-${{ matrix.CONFIGURATION }}-pdb
+          path: build/qvgmsplit.pdb
