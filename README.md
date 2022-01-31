@@ -2,7 +2,7 @@
 
 A cross-platform multithreaded Qt-based app to split .vgm files into a .wav file for each channel.
 
-This program renders audio using ValleyBell's [libvgm](https://github.com/ValleyBell/libvgm), a modular rewrite of vgmplay. qvgmsplit renders each .wav file in parallel on a separate thread, which is several times faster on modern multi-core CPUs.
+This program renders audio using ValleyBell's [libvgm](https://github.com/ValleyBell/libvgm), a modular rewrite of vgmplay. qvgmsplit renders each .wav file in parallel on a separate thread, which is several times faster than single-threaded rendering on modern multi-core CPUs.
 
 ![Screenshot of qvgmsplit channel list and render dialog](docs/images/readme-screenshot.png)
 
