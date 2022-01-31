@@ -286,6 +286,10 @@ public:
     QSize sizeHint() const override {
         return QSize(144, 144);
     }
+
+    QSize minimumSizeHint() const override {
+        return QSize(112, 112);
+    }
 };
 
 class ChannelsModel final : public QAbstractListModel {
